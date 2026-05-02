@@ -1,68 +1,64 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
 
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('overlay');
-        const canvasContext = canvas.getContext('2d');
-        // Offscreen/input canvas used to normalize orientation for detection
-        const inputCanvas = document.createElement('canvas');
-        const inputCtx = inputCanvas.getContext('2d');
-        const drawingUtils = new DrawingUtils(canvasContext);
-        const webcamButton = document.getElementById('webcam-button');
-        const videoFileInput = document.getElementById('video-file');
-        const statusText = document.getElementById('status-text');
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+const canvasContext = canvas.getContext('2d');
 
-        let poseLandmarker;
-        let animationFrameId = null;
-        let lastVideoTime = -1;
+// Offscreen/input canvas used to let the browser natively fix the video orientation
+const inputCanvas = document.createElement('canvas');
+const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
 
-        const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
-        const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
+const drawingUtils = new DrawingUtils(canvasContext);
+const webcamButton = document.getElementById('webcam-button');
+const videoFileInput = document.getElementById('video-file');
+const statusText = document.getElementById('status-text');
 
-        function setStatus(message) {
-            statusText.textContent = message;
+let poseLandmarker;
+let animationFrameId = null;
+let lastVideoTime = -1;
+
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
+
+function setStatus(message) {
+    statusText.textContent = message;
+}
+
+function resizeCanvas() {
+    // Let the browser naturally report the dimensions without manually swapping them
+    const vw = video.videoWidth || 1280;
+    const vh = video.videoHeight || 720;
+    
+    // Set both canvases to perfectly match the video
+    inputCanvas.width = vw;
+    inputCanvas.height = vh;
+    canvas.width = vw;
+    canvas.height = vh;
+}
+
+function stopActiveStream() {
+    if (video.srcObject) {
+        for (const track of video.srcObject.getTracks()) {
+            track.stop();
         }
+        video.srcObject = null;
+    }
+}
 
-        function resizeCanvas() {
-            // If the source video is portrait (height > width) we rotate the frame
-            // so the model always receives a landscape-oriented image. The overlay
-            // canvas must match the rotated input dimensions.
-            const vw = video.videoWidth || 1280;
-            const vh = video.videoHeight || 720;
-            if (vw && vh && vw < vh) {
-                // portrait -> rotate 90deg: input canvas becomes (height x width)
-                inputCanvas.width = vh;
-                inputCanvas.height = vw;
-                canvas.width = vh;
-                canvas.height = vw;
-            } else {
-                inputCanvas.width = vw;
-                inputCanvas.height = vh;
-                canvas.width = vw;
-                canvas.height = vh;
-            }
-        }
-
-        function stopActiveStream() {
-            if (video.srcObject) {
-                for (const track of video.srcObject.getTracks()) {
-                    track.stop();
-                }
-                video.srcObject = null;
-            }
-        }
-
-        function resetLoop() {
-            lastVideoTime = -1;
-            if (animationFrameId !== null) {
-                cancelAnimationFrame(animationFrameId);
-                animationFrameId = null;
-            }
-        }
+function resetLoop() {
+    lastVideoTime = -1;
+    if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+}
 
 function drawResults(result) {
     canvasContext.save();
     canvasContext.clearRect(0, 0, canvas.width, canvas.height);
-    canvasContext.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // CRITICAL FIX: Draw the upright inputCanvas, NOT the raw sideways video
+    canvasContext.drawImage(inputCanvas, 0, 0, canvas.width, canvas.height);
 
     const landmarks = result.landmarks?.[0];
     if (landmarks?.length) {
@@ -83,7 +79,6 @@ function drawResults(result) {
         });
 
         // 3. Define Body Segments and Weights (Scientific Anthropometric Data)
-        // We use the midpoint of joints to represent the "center" of that limb's mass
         const segments = [
             { pos: landmarks[0], weight: 0.08 },                       // Head (Nose)
             { pos: mid(11, 24), weight: 0.50 },                        // Torso (Shoulder to Hip center)
@@ -120,80 +115,93 @@ function drawResults(result) {
     canvasContext.restore();
 }
 
-        function trackFrame() {
-            if (!poseLandmarker || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-                animationFrameId = requestAnimationFrame(trackFrame);
-                return;
-            }
+async function loadLandmarker() {
+    if (poseLandmarker) {
+        return poseLandmarker;
+    }
 
-            // Draw the video frame into the input canvas with rotation if needed.
-            const vw = video.videoWidth || 0;
-            const vh = video.videoHeight || 0;
-            if (vw && vh && vw < vh) {
-                // portrait: rotate -90deg so the resulting image is upright for the model
-                inputCtx.save();
-                inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
-                inputCtx.translate(inputCanvas.width / 2, inputCanvas.height / 2);
-                inputCtx.rotate(-Math.PI / 2);
-                // draw the video centered (video width/height are swapped visually)
-                inputCtx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
-                inputCtx.restore();
-            } else {
-                inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
-                inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
-            }
+    setStatus('Loading MediaPipe model...');
+    const vision = await FilesetResolver.forVisionTasks(WASM_URL);
 
-            if (video.currentTime !== lastVideoTime) {
-                lastVideoTime = video.currentTime;
-                // Run detection on the normalized input canvas so landmarks match what we draw
-                const result = poseLandmarker.detectForVideo(inputCanvas, performance.now());
-                drawResults(result);
-            }
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+            modelAssetPath: MODEL_URL
+        },
+        runningMode: 'VIDEO',
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minPosePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
 
-            animationFrameId = requestAnimationFrame(trackFrame);
-        }
+    setStatus('Model ready. Load a video or start the webcam.');
+    return poseLandmarker;
+}
 
-        async function startTracking() {
-            resizeCanvas();
-            await loadLandmarker();
-            resetLoop();
-            trackFrame();
-        }
+function trackFrame() {
+    if (!poseLandmarker || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        animationFrameId = requestAnimationFrame(trackFrame);
+        return;
+    }
 
-        webcamButton.addEventListener('click', async () => {
-            try {
-                stopActiveStream();
-                resetLoop();
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                video.srcObject = stream;
-                await video.play();
-                await startTracking();
-                setStatus('Webcam tracking is active.');
-            } catch (error) {
-                console.error(error);
-                setStatus('Could not start the webcam. Use a video file or run on localhost/https.');
-            }
-        });
+    if (video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
 
-        videoFileInput.addEventListener('change', async () => {
-            const file = videoFileInput.files?.[0];
-            if (!file) {
-                return;
-            }
+        // 1. Draw the video to the input canvas (the browser automatically fixes orientation here!)
+        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
+        inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
 
-            stopActiveStream();
-            resetLoop();
+        // 2. Run detection on the perfectly upright input canvas
+        const result = poseLandmarker.detectForVideo(inputCanvas, performance.now());
+        
+        // 3. Send results to be drawn
+        drawResults(result);
+    }
 
-            const objectUrl = URL.createObjectURL(file);
-            video.srcObject = null;
-            video.src = objectUrl;
-            video.onloadedmetadata = async () => {
-                resizeCanvas();
-                await video.play();
-                await startTracking();
-                setStatus(`Tracking ${file.name}.`);
-            };
-        });
+    animationFrameId = requestAnimationFrame(trackFrame);
+}
 
-        await loadLandmarker();
-        video.addEventListener('loadedmetadata', resizeCanvas);
+async function startTracking() {
+    resizeCanvas();
+    await loadLandmarker();
+    resetLoop();
+    trackFrame();
+}
+
+webcamButton.addEventListener('click', async () => {
+    try {
+        stopActiveStream();
+        resetLoop();
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        video.srcObject = stream;
+        await video.play();
+        await startTracking();
+        setStatus('Webcam tracking is active.');
+    } catch (error) {
+        console.error(error);
+        setStatus('Could not start the webcam. Use a video file or run on localhost/https.');
+    }
+});
+
+videoFileInput.addEventListener('change', async () => {
+    const file = videoFileInput.files?.[0];
+    if (!file) {
+        return;
+    }
+
+    stopActiveStream();
+    resetLoop();
+
+    const objectUrl = URL.createObjectURL(file);
+    video.srcObject = null;
+    video.src = objectUrl;
+    video.onloadedmetadata = async () => {
+        resizeCanvas();
+        await video.play();
+        await startTracking();
+        setStatus(`Tracking ${file.name}.`);
+    };
+});
+
+await loadLandmarker();
+video.addEventListener('loadedmetadata', resizeCanvas);
