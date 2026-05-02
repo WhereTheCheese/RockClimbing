@@ -59,66 +59,66 @@ import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdel
             }
         }
 
-        function drawResults(result) {
-            canvasContext.save();
-            canvasContext.clearRect(0, 0, canvas.width, canvas.height);
-            // Draw the rotated/normalized input frame (not the raw video) so overlay lines up.
-            canvasContext.drawImage(inputCanvas, 0, 0, canvas.width, canvas.height);
+function drawResults(result) {
+    canvasContext.save();
+    canvasContext.clearRect(0, 0, canvas.width, canvas.height);
+    canvasContext.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            const landmarks = result.landmarks?.[0];
-            if (landmarks?.length) {
-                drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
-                    color: '#67f2c4',
-                    lineWidth: 4
-                });
-                drawingUtils.drawLandmarks(landmarks, {
-                    color: '#f7fbff',
-                    radius: 3
-                });
+    const landmarks = result.landmarks?.[0];
+    if (landmarks?.length) {
+        // 1. Draw the standard skeleton
+        drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
+            color: '#67f2c4',
+            lineWidth: 2
+        });
+        drawingUtils.drawLandmarks(landmarks, {
+            color: '#f7fbff',
+            radius: 2
+        });
 
-                const trackedPoints = [23, 24]
-                    .map((index) => landmarks[index])
-                    .filter(Boolean);
+        // 2. Helper to get midpoint of two landmarks
+        const mid = (idx1, idx2) => ({
+            x: (landmarks[idx1].x + landmarks[idx2].x) / 2,
+            y: (landmarks[idx1].y + landmarks[idx2].y) / 2
+        });
 
-                if (trackedPoints.length) {
-                    const centerX = trackedPoints.reduce((sum, point) => sum + point.x, 0) / trackedPoints.length;
-                    const centerY = trackedPoints.reduce((sum, point) => sum + point.y, 0) / trackedPoints.length;
+        // 3. Define Body Segments and Weights (Scientific Anthropometric Data)
+        // We use the midpoint of joints to represent the "center" of that limb's mass
+        const segments = [
+            { pos: landmarks[0], weight: 0.08 },                       // Head (Nose)
+            { pos: mid(11, 24), weight: 0.50 },                        // Torso (Shoulder to Hip center)
+            { pos: mid(23, 25), weight: 0.10 }, { pos: mid(24, 26), weight: 0.10 }, // Thighs
+            { pos: mid(25, 27), weight: 0.06 }, { pos: mid(26, 28), weight: 0.06 }, // Lower Legs
+            { pos: mid(11, 13), weight: 0.03 }, { pos: mid(12, 14), weight: 0.03 }, // Upper Arms
+            { pos: mid(13, 15), weight: 0.02 }, { pos: mid(14, 16), weight: 0.02 }  // Forearms
+        ];
 
-                    canvasContext.beginPath();
-                    canvasContext.arc(centerX * canvas.width, centerY * canvas.height, 10, 0, Math.PI * 2);
-                    canvasContext.fillStyle = '#ffd166';
-                    canvasContext.fill();
-                    canvasContext.lineWidth = 2;
-                    canvasContext.strokeStyle = '#081018';
-                    canvasContext.stroke();
-                }
-            }
+        // 4. Calculate Weighted Center of Gravity
+        let cogX = 0;
+        let cogY = 0;
+        
+        segments.forEach(s => {
+            cogX += s.pos.x * s.weight;
+            cogY += s.pos.y * s.weight;
+        });
 
-            canvasContext.restore();
-        }
+        // 5. Draw the COG Indicator
+        canvasContext.beginPath();
+        // Drawing a "crosshair" or target style for better visibility
+        canvasContext.arc(cogX * canvas.width, cogY * canvas.height, 12, 0, Math.PI * 2);
+        canvasContext.strokeStyle = '#ffd166';
+        canvasContext.lineWidth = 3;
+        canvasContext.stroke();
+        
+        // Inner dot
+        canvasContext.beginPath();
+        canvasContext.arc(cogX * canvas.width, cogY * canvas.height, 4, 0, Math.PI * 2);
+        canvasContext.fillStyle = '#ffd166';
+        canvasContext.fill();
+    }
 
-        async function loadLandmarker() {
-            if (poseLandmarker) {
-                return poseLandmarker;
-            }
-
-            setStatus('Loading MediaPipe model...');
-            const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-
-            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: MODEL_URL
-                },
-                runningMode: 'VIDEO',
-                numPoses: 1,
-                minPoseDetectionConfidence: 0.5,
-                minPosePresenceConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-
-            setStatus('Model ready. Load a video or start the webcam.');
-            return poseLandmarker;
-        }
+    canvasContext.restore();
+}
 
         function trackFrame() {
             if (!poseLandmarker || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
