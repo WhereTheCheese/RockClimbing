@@ -3,8 +3,11 @@ import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdel
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const canvasContext = canvas.getContext('2d');
+
+// Offscreen/input canvas used to let the browser natively fix the video orientation
 const inputCanvas = document.createElement('canvas');
-const inputCtx = inputCanvas.getContext('2d');
+const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
+
 const drawingUtils = new DrawingUtils(canvasContext);
 const webcamButton = document.getElementById('webcam-button');
 const videoFileInput = document.getElementById('video-file');
@@ -15,7 +18,7 @@ let animationFrameId = null;
 let lastVideoTime = -1;
 
 // --- COG TRACKING CONFIGURATION ---
-const cogHistory = []; 
+const cogHistory = [];
 const cogPath = [];
 const SMOOTHING_WINDOW = 5; // Average over 5 frames to reduce jitter
 const MAX_PATH_POINTS = 300;
@@ -75,19 +78,15 @@ function setStatus(message) {
 }
 
 function resizeCanvas() {
+    // Let the browser naturally report the dimensions without manually swapping them
     const vw = video.videoWidth || 1280;
     const vh = video.videoHeight || 720;
-    if (vw && vh && vw < vh) {
-        inputCanvas.width = vh;
-        inputCanvas.height = vw;
-        canvas.width = vh;
-        canvas.height = vw;
-    } else {
-        inputCanvas.width = vw;
-        inputCanvas.height = vh;
-        canvas.width = vw;
-        canvas.height = vh;
-    }
+
+    // Set both canvases to perfectly match the video
+    inputCanvas.width = vw;
+    inputCanvas.height = vh;
+    canvas.width = vw;
+    canvas.height = vh;
 }
 
 function stopActiveStream() {
@@ -131,11 +130,13 @@ function drawCogPath() {
 function drawResults(result) {
     canvasContext.save();
     canvasContext.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw the upright inputCanvas (the browser automatically fixes orientation)
     canvasContext.drawImage(inputCanvas, 0, 0, canvas.width, canvas.height);
 
     const landmarks = result.landmarks?.[0];
     if (landmarks?.length) {
-        // KEEP SKELETON OUTLINE
+        // 1. Draw the standard skeleton
         drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
             color: '#67f2c4',
             lineWidth: 2
@@ -145,7 +146,7 @@ function drawResults(result) {
             radius: 2
         });
 
-        // CALCULATE AND DRAW COG
+        // 2. Calculate and draw COG with trail
         const cog = calculateCOG(landmarks);
         cogPath.push({
             x: cog.x * canvas.width,
@@ -169,7 +170,7 @@ function drawResults(result) {
         canvasContext.arc(cog.x * canvas.width, cog.y * canvas.height, 4, 0, Math.PI * 2);
         canvasContext.fillStyle = '#ffd166';
         canvasContext.fill();
-        
+
         // Label the COG
         canvasContext.fillStyle = '#ffd166';
         canvasContext.font = 'bold 12px Inter, sans-serif';
@@ -180,18 +181,25 @@ function drawResults(result) {
 }
 
 async function loadLandmarker() {
-    if (poseLandmarker) return poseLandmarker;
+    if (poseLandmarker) {
+        return poseLandmarker;
+    }
+
     setStatus('Loading MediaPipe model...');
     const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL },
+        baseOptions: {
+            modelAssetPath: MODEL_URL
+        },
         runningMode: 'VIDEO',
         numPoses: 1,
         minPoseDetectionConfidence: 0.5,
         minPosePresenceConfidence: 0.5,
         minTrackingConfidence: 0.5
     });
-    setStatus('Model ready.');
+
+    setStatus('Model ready. Load a video or start the webcam.');
     return poseLandmarker;
 }
 
@@ -201,23 +209,17 @@ function trackFrame() {
         return;
     }
 
-    const vw = video.videoWidth || 0;
-    const vh = video.videoHeight || 0;
-    if (vw && vh && vw < vh) {
-        inputCtx.save();
-        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
-        inputCtx.translate(inputCanvas.width / 2, inputCanvas.height / 2);
-        inputCtx.rotate(-Math.PI / 2);
-        inputCtx.drawImage(video, -vw / 2, -vh / 2, vw, vh);
-        inputCtx.restore();
-    } else {
-        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
-        inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
-    }
-
     if (video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
+
+        // 1. Draw the video to the input canvas (the browser automatically fixes orientation here!)
+        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
+        inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
+
+        // 2. Run detection on the perfectly upright input canvas
         const result = poseLandmarker.detectForVideo(inputCanvas, performance.now());
+
+        // 3. Send results to be drawn
         drawResults(result);
     }
 
@@ -239,22 +241,30 @@ webcamButton.addEventListener('click', async () => {
         video.srcObject = stream;
         await video.play();
         await startTracking();
-        setStatus('Webcam active.');
+        setStatus('Webcam tracking is active.');
     } catch (error) {
-        setStatus('Webcam error. Check permissions.');
+        console.error(error);
+        setStatus('Could not start the webcam. Use a video file or run on localhost/https.');
     }
 });
 
 videoFileInput.addEventListener('change', async () => {
     const file = videoFileInput.files?.[0];
-    if (!file) return;
+    if (!file) {
+        return;
+    }
+
     stopActiveStream();
     resetLoop();
-    video.src = URL.createObjectURL(file);
+
+    const objectUrl = URL.createObjectURL(file);
+    video.srcObject = null;
+    video.src = objectUrl;
     video.onloadedmetadata = async () => {
         resizeCanvas();
         await video.play();
         await startTracking();
+        setStatus(`Tracking ${file.name}.`);
     };
 });
 
