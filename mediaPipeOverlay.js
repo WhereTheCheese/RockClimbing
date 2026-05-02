@@ -16,7 +16,9 @@ let lastVideoTime = -1;
 
 // --- COG TRACKING CONFIGURATION ---
 const cogHistory = []; 
+const cogPath = [];
 const SMOOTHING_WINDOW = 5; // Average over 5 frames to reduce jitter
+const MAX_PATH_POINTS = 300;
 
 function getMidpoint(p1, p2) {
     return {
@@ -100,10 +102,30 @@ function stopActiveStream() {
 function resetLoop() {
     lastVideoTime = -1;
     cogHistory.length = 0; // Clear history on new video/webcam
+    cogPath.length = 0;
     if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
     }
+}
+
+function drawCogPath() {
+    if (cogPath.length < 2) {
+        return;
+    }
+
+    canvasContext.save();
+    canvasContext.beginPath();
+    canvasContext.moveTo(cogPath[0].x, cogPath[0].y);
+    for (let i = 1; i < cogPath.length; i += 1) {
+        canvasContext.lineTo(cogPath[i].x, cogPath[i].y);
+    }
+    canvasContext.strokeStyle = '#ffd166';
+    canvasContext.lineWidth = 3;
+    canvasContext.lineJoin = 'round';
+    canvasContext.lineCap = 'round';
+    canvasContext.stroke();
+    canvasContext.restore();
 }
 
 function drawResults(result) {
@@ -125,6 +147,15 @@ function drawResults(result) {
 
         // CALCULATE AND DRAW COG
         const cog = calculateCOG(landmarks);
+        cogPath.push({
+            x: cog.x * canvas.width,
+            y: cog.y * canvas.height
+        });
+        if (cogPath.length > MAX_PATH_POINTS) {
+            cogPath.shift();
+        }
+
+        drawCogPath();
 
         // Draw COG Outer Ring
         canvasContext.beginPath();
