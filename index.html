@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Climbing Tracker UI</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #00ffcc;
+        }
+        .container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            border: 4px solid #333;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        /* The video is hidden because we draw its frames onto the canvas instead */
+        .input_video {
+            display: none; 
+        }
+        .output_canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .status {
+            margin-top: 15px;
+            font-size: 1.2rem;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Live Climbing Analytics</h1>
+    
+    <div class="container">
+        <video class="input_video"></video>
+        <canvas class="output_canvas" width="1280" height="720"></canvas>
+    </div>
+
+    <div class="status" id="status-text">Loading Model...</div>
+
+    <script>
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementsByClassName('output_canvas')[0];
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusText = document.getElementById('status-text');
+
+        // This function runs every time MediaPipe finishes processing a frame
+        function onResults(results) {
+            statusText.innerText = "Tracking Active";
+            
+            // Clear the previous frame
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Draw the raw video frame onto the canvas
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.poseLandmarks) {
+                // Draw standard skeleton
+                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+                               {color: '#00ffcc', lineWidth: 4});
+                drawLandmarks(canvasCtx, results.poseLandmarks,
+                              {color: '#ffffff', lineWidth: 2, radius: 3});
+
+                // --- Custom Hip Tracking Logic ---
+                // MediaPipe Pose landmarks 23 and 24 are the hips
+                const leftHip = results.poseLandmarks[23];
+                const rightHip = results.poseLandmarks[24];
+
+                // Check if hips are visible (visibility score > 0.5)
+                if (leftHip.visibility > 0.5 && rightHip.visibility > 0.5) {
+                    // Calculate pixel coordinates
+                    const cx = ((leftHip.x + rightHip.x) / 2) * canvasElement.width;
+                    const cy = ((leftHip.y + rightHip.y) / 2) * canvasElement.height;
+
+                    // Draw the yellow hip center dot
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(cx, cy, 15, 0, 2 * Math.PI);
+                    canvasCtx.fillStyle = '#ffe600'; // Bright Yellow
+                    canvasCtx.fill();
+                    canvasCtx.lineWidth = 3;
+                    canvasCtx.strokeStyle = '#000000'; // Black border for contrast
+                    canvasCtx.stroke();
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        // Initialize the MediaPipe Pose model
+        const pose = new Pose({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+        }});
+        
+        pose.setOptions({
+            modelComplexity: 1,     // 0 is faster, 2 is more accurate
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        pose.onResults(onResults);
+
+        // Connect the webcam to the MediaPipe pipeline
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await pose.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+        
+        camera.start();
+    </script>
+</body>
+</html>
