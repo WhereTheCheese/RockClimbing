@@ -359,6 +359,96 @@
             display: block;
         }
 
+        /* Footer */
+        .footer {
+            background: var(--panel);
+            border-top: 1px solid var(--panel-border);
+            padding: 32px 32px 24px;
+            margin-top: 40px;
+        }
+
+        .footer-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 32px;
+            flex-wrap: wrap;
+        }
+
+        .footer-logo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .footer-logo img {
+            height: 60px;
+            width: auto;
+        }
+
+        .footer-logo-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .footer-logo-text h3 {
+            margin: 0;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.3rem;
+            font-weight: 800;
+            color: var(--text);
+        }
+
+        .footer-logo-text p {
+            margin: 4px 0 0 0;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        .team-links {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .team-links h4 {
+            margin: 0 0 8px 0;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .team-members {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px 24px;
+        }
+
+        .team-member-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+        }
+
+        .team-member-link:hover {
+            color: var(--accent);
+        }
+
+        .team-member-link svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+
         @media (max-width: 1024px) {
             .dashboard {
                 grid-template-columns: 1fr;
@@ -569,6 +659,17 @@
             border-color: var(--accent);
             background: rgba(255, 107, 53, 0.1);
         }
+
+        @media (max-width: 768px) {
+            .footer-content {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .team-members {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 
@@ -706,6 +807,39 @@
             </div>
         </div>
     </div>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-logo">
+                <img src="ClimberAid_Logo.png" alt="ClimberAid Logo">
+                <div class="footer-logo-text">
+                    <h3>ClimberAid</h3>
+                    <p>Advanced climbing performance analysis</p>
+                </div>
+            </div>
+            <div class="team-links">
+                <h4>Meet the Team</h4>
+                <div class="team-members">
+                    <a href="https://www.linkedin.com/in/nathaniel-wu-3755a22b2/" target="_blank" rel="noopener noreferrer" class="team-member-link">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                        Nathaniel Wu
+                    </a>
+                    <a href="https://www.linkedin.com/in/andrew-washburn-4855a32b2/" target="_blank" rel="noopener noreferrer" class="team-member-link">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                        Andrew Washburn
+                    </a>
+                    <a href="https://www.linkedin.com/in/jacob-brayko-520ab53aa/" target="_blank" rel="noopener noreferrer" class="team-member-link">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                        Jacob Brayko
+                    </a>
+                    <a href="https://www.linkedin.com/in/zach-yarvis-81327b2b2/" target="_blank" rel="noopener noreferrer" class="team-member-link">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                        Zach Yarvis
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
 
     <script type="module" src="./mediaPipeOverlay.js?v=20260503"></script>
 </body>

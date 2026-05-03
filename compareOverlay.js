@@ -1,4 +1,5 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
+import { calculateDetailedMetrics } from './dataAnalysis.js';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
@@ -21,9 +22,11 @@ let poseLandmarker;
 let animationFrameId = null;
 let frameCount = 0;
 
-// ─── SHARED OFFSCREEN CANVAS (single instance, reused for both videos) ────────
-const inputCanvas = document.createElement('canvas');
-const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
+// ─── SEPARATE OFFSCREEN CANVASES (one per video for proper tracking) ──────────
+const inputCanvasA = document.createElement('canvas');
+const inputCtxA = inputCanvasA.getContext('2d', { willReadFrequently: true });
+const inputCanvasB = document.createElement('canvas');
+const inputCtxB = inputCanvasB.getContext('2d', { willReadFrequently: true });
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const statusText = document.getElementById('status-text');
@@ -67,6 +70,10 @@ function createPanel(id) {
     const accuracyEl = document.getElementById(`accuracy-${id}`);
     const velocityEl = document.getElementById(`velocity-${id}`);
 
+    // Assign dedicated input canvas and context to each panel
+    const inputCanvas = id === 'a' ? inputCanvasA : inputCanvasB;
+    const inputCtx = id === 'a' ? inputCtxA : inputCtxB;
+    
     return {
         id, video, canvas, ctx, drawUtils, fileInput, labelEl,
         stabilityEl, accuracyEl, velocityEl,
@@ -79,6 +86,8 @@ function createPanel(id) {
         objectUrl: null,
         ended: false,
         analytics: createAnalyticsState(),
+        inputCanvas,
+        inputCtx,
     };
 }
 
@@ -235,12 +244,18 @@ function drawPanel(panel) {
         stabilityEl, accuracyEl, velocityEl, lastResult, analytics } = panel;
     if (!lastResult) return;
 
+
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const landmarks = lastResult.landmarks?.[0];
-    if (!landmarks?.length) { ctx.restore(); return; }
+    // Only draw skeleton if we have a valid result with landmarks
+    if (!lastResult || !lastResult.landmarks?.[0]?.length) {
+        ctx.restore();
+        return;
+    }
+
+    const landmarks = lastResult.landmarks[0];
 
     const s = Math.max(canvas.width, canvas.height) / 720;
 
@@ -348,9 +363,10 @@ function resizePanel(panel) {
     const vh = panel.video.videoHeight || 720;
     panel.canvas.width = vw;
     panel.canvas.height = vh;
+    // Keep this panel's input canvas sized appropriately
     const scale = Math.min(1, MAX_DETECTION_WIDTH / Math.max(vw, 1));
-    inputCanvas.width = Math.round(vw * scale);
-    inputCanvas.height = Math.round(vh * scale);
+    panel.inputCanvas.width = Math.round(vw * scale);
+    panel.inputCanvas.height = Math.round(vh * scale);
 }
 
 // ─── CORE LOOP ────────────────────────────────────────────────────────────────
@@ -362,22 +378,31 @@ function trackFrame() {
 
     frameCount++;
 
-    // Stagger: even frames → panel A, odd frames → panel B
-    const targets = frameCount % 2 === 0
-        ? [panels[0], panels[1]]
-        : [panels[1], panels[0]];
+    // Stagger detection: only detect ONE panel per frame for better performance
+    // Panel A on even frames, Panel B on odd frames
+    const detectPanelIndex = frameCount % 2;
 
-    const detect = targets[0];
-    if (detect.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        detect.video.currentTime !== detect.lastVideoTime) {
+    panels.forEach((panel, index) => {
+        if (panel.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+            panel.video.currentTime !== panel.lastVideoTime) {
 
-        detect.lastVideoTime = detect.video.currentTime;
-        resizePanel(detect);
-        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
-        inputCtx.drawImage(detect.video, 0, 0, inputCanvas.width, inputCanvas.height);
-        detect.lastResult = poseLandmarker.detectForVideo(inputCanvas, performance.now());
-    }
+            panel.lastVideoTime = panel.video.currentTime;
+            
+            // Only run detection for the designated panel this frame
+            if (index === detectPanelIndex) {
+                resizePanel(panel);
+                
+                // Use this panel's dedicated input canvas
+                panel.inputCtx.clearRect(0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
+                panel.inputCtx.drawImage(panel.video, 0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
+                
+                // Run pose detection
+                panel.lastResult = poseLandmarker.detectForVideo(panel.inputCanvas, performance.now());
+            }
+        }
+    });
 
+    // Draw both panels every frame (each uses its most recent detection)
     panels.forEach(drawPanel);
     animationFrameId = requestAnimationFrame(trackFrame);
 }
@@ -390,9 +415,9 @@ async function loadLandmarker() {
         baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
         runningMode: 'VIDEO',
         numPoses: 1,
-        minPoseDetectionConfidence: 0.5,
-        minPosePresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
+        minPoseDetectionConfidence: 0.3,  // Lower threshold for better detection
+        minPosePresenceConfidence: 0.3,   // Lower threshold for better detection
+        minTrackingConfidence: 0.3,       // Lower threshold for better tracking
     });
 
     try {
