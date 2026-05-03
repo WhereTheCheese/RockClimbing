@@ -1,9 +1,13 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
-import { calculateDetailedMetrics } from './dataAnalysis.js';
+
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
+const MODEL_URLS = {
+    lite: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+    full: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+    heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task',
+};
 const MAX_DETECTION_WIDTH = 640;
 const MAX_PATH_POINTS = 300;
 
@@ -21,6 +25,7 @@ const STABILITY_EMA_ALPHA = 0.05;
 let poseLandmarker;
 let animationFrameId = null;
 let frameCount = 0;
+let lastDetectTimestamp = 0; // MediaPipe needs strictly increasing timestamps
 
 // ─── SEPARATE OFFSCREEN CANVASES (one per video for proper tracking) ──────────
 const inputCanvasA = document.createElement('canvas');
@@ -28,8 +33,10 @@ const inputCtxA = inputCanvasA.getContext('2d', { willReadFrequently: true });
 const inputCanvasB = document.createElement('canvas');
 const inputCtxB = inputCanvasB.getContext('2d', { willReadFrequently: true });
 
-// ─── DOM ──────────────────────────────────────────────────────────────────────
+// ─── DOM ────────────────────────────────────────────────────────────────────
 const statusText = document.getElementById('status-text');
+const modelSelect = document.getElementById('model-select');
+const delegateSelect = document.getElementById('delegate-select');
 
 // ─── PER-PANEL ANALYTICS STATE ────────────────────────────────────────────────
 function createAnalyticsState() {
@@ -73,7 +80,7 @@ function createPanel(id) {
     // Assign dedicated input canvas and context to each panel
     const inputCanvas = id === 'a' ? inputCanvasA : inputCanvasB;
     const inputCtx = id === 'a' ? inputCtxA : inputCtxB;
-    
+
     return {
         id, video, canvas, ctx, drawUtils, fileInput, labelEl,
         stabilityEl, accuracyEl, velocityEl,
@@ -88,10 +95,33 @@ function createPanel(id) {
         analytics: createAnalyticsState(),
         inputCanvas,
         inputCtx,
+        // Per-panel controls
+        ppBtn: document.getElementById(`pp-${id}`),
+        seekBar: document.getElementById(`seek-${id}`),
+        timeEl: document.getElementById(`time-${id}`),
+        // Trim state (seconds, null = not set)
+        trimStart: null,
+        trimEnd: null,
     };
 }
 
 const panels = [createPanel('a'), createPanel('b')];
+
+// ─── TIME HELPERS ─────────────────────────────────────────────────────────────
+function fmtTime(sec) {
+    if (!isFinite(sec) || sec < 0) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+
+// Effective playback range for a panel (respects trim)
+function getRange(panel) {
+    const start = panel.trimStart ?? 0;
+    const end = panel.trimEnd ?? (panel.video.duration || 0);
+    return { start, end, duration: Math.max(0, end - start) };
+}
 
 // ─── MATH HELPERS ─────────────────────────────────────────────────────────────
 function midpoint(p1, p2) {
@@ -354,15 +384,28 @@ function drawPanel(panel) {
     ctx.fillText('Smoothness', bx + 14 * s, by + 50 * s);
 
     ctx.restore();
+
+    // Update per-panel seek bar and time display (throttled)
+    if (frameCount % 4 === 0) {
+        const range = getRange(panel);
+        if (panel.seekBar && panel.video.duration) {
+            const pos = ((panel.video.currentTime - range.start) / Math.max(range.duration, 0.01)) * 1000;
+            panel.seekBar.value = Math.max(0, Math.min(1000, pos));
+        }
+        if (panel.timeEl && panel.video.duration) {
+            panel.timeEl.textContent = `${fmtTime(panel.video.currentTime - range.start)} / ${fmtTime(range.duration)}`;
+        }
+    }
 }
 
-// ─── CANVAS RESIZE ────────────────────────────────────────────────────────────
+// ─── CANVAS RESIZE (only when dimensions change) ─────────────────────────────
 function resizePanel(panel) {
     const vw = panel.video.videoWidth || 1280;
     const vh = panel.video.videoHeight || 720;
+    // Skip if dimensions haven't changed
+    if (panel.canvas.width === vw && panel.canvas.height === vh) return;
     panel.canvas.width = vw;
     panel.canvas.height = vh;
-    // Keep this panel's input canvas sized appropriately
     const scale = Math.min(1, MAX_DETECTION_WIDTH / Math.max(vw, 1));
     panel.inputCanvas.width = Math.round(vw * scale);
     panel.inputCanvas.height = Math.round(vh * scale);
@@ -377,29 +420,42 @@ function trackFrame() {
 
     frameCount++;
 
-    // Stagger detection: only detect ONE panel per frame for better performance
+    // Stagger detection: only detect ONE panel per frame
     // Panel A on even frames, Panel B on odd frames
     const detectPanelIndex = frameCount % 2;
+    const panel = panels[detectPanelIndex];
 
-    panels.forEach((panel, index) => {
-        if (panel.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-            panel.video.currentTime !== panel.lastVideoTime) {
+    // Only detect if video is actively playing, has a new frame,
+    // and is within the trim range
+    if (panel.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        !panel.video.paused && !panel.video.ended &&
+        panel.video.currentTime !== panel.lastVideoTime) {
 
+        // Enforce trim end — auto-pause when we reach it
+        const range = getRange(panel);
+        if (panel.video.currentTime >= range.end) {
+            panel.video.pause();
+            panel.video.currentTime = range.end;
+            if (panel.ppBtn) panel.ppBtn.textContent = '▶';
+            panel.ended = true;
+            showComparisonSummary();
+        } else {
             panel.lastVideoTime = panel.video.currentTime;
-            
-            // Only run detection for the designated panel this frame
-            if (index === detectPanelIndex) {
-                resizePanel(panel);
-                
-                // Use this panel's dedicated input canvas
-                panel.inputCtx.clearRect(0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
-                panel.inputCtx.drawImage(panel.video, 0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
-                
-                // Run pose detection
-                panel.lastResult = poseLandmarker.detectForVideo(panel.inputCanvas, performance.now());
+            resizePanel(panel);
+
+            panel.inputCtx.clearRect(0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
+            panel.inputCtx.drawImage(panel.video, 0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
+
+            const now = performance.now();
+            lastDetectTimestamp = Math.max(now, lastDetectTimestamp + 1);
+
+            try {
+                panel.lastResult = poseLandmarker.detectForVideo(panel.inputCanvas, lastDetectTimestamp);
+            } catch (e) {
+                console.warn('[compare] Detection error, skipping frame:', e.message);
             }
         }
-    });
+    }
 
     // Draw both panels every frame (each uses its most recent detection)
     panels.forEach(drawPanel);
@@ -407,18 +463,32 @@ function trackFrame() {
 }
 
 // ─── MODEL LOADING ────────────────────────────────────────────────────────────
-async function loadLandmarker() {
-    setStatus('Loading MediaPipe model...');
-    const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+let _visionInstance = null;
+
+async function loadLandmarker(modelKey, delegate) {
+    const modelUrl = MODEL_URLS[modelKey] || MODEL_URLS.full;
+    setStatus(`Loading ${modelKey} model (${delegate})...`);
+
+    // Close previous instance if reloading
+    if (poseLandmarker) {
+        poseLandmarker.close();
+        poseLandmarker = null;
+    }
+
+    if (!_visionInstance) {
+        _visionInstance = await FilesetResolver.forVisionTasks(WASM_URL);
+    }
+
+    poseLandmarker = await PoseLandmarker.createFromOptions(_visionInstance, {
+        baseOptions: { modelAssetPath: modelUrl, delegate: delegate },
         runningMode: 'VIDEO',
         numPoses: 1,
-        minPoseDetectionConfidence: 0.3,  // Lower threshold for better detection
-        minPosePresenceConfidence: 0.3,   // Lower threshold for better detection
-        minTrackingConfidence: 0.3,       // Lower threshold for better tracking
+        minPoseDetectionConfidence: 0.3,
+        minPosePresenceConfidence: 0.3,
+        minTrackingConfidence: 0.3,
     });
 
+    // Pre-warm GPU shaders
     try {
         const w = document.createElement('canvas');
         w.width = MAX_DETECTION_WIDTH;
@@ -426,7 +496,7 @@ async function loadLandmarker() {
         poseLandmarker.detectForVideo(w, performance.now());
     } catch (_) { }
 
-    setStatus('Ready — upload two videos to compare');
+    setStatus(`Ready — ${modelKey} (${delegate})`);
 }
 
 function setStatus(msg) {
@@ -504,8 +574,9 @@ function hideComparisonSummary() {
     if (section) section.classList.remove('visible');
 }
 
-// ─── FILE INPUT HANDLERS ─────────────────────────────────────────────────────
+// ─── FILE INPUT + CONTROL HANDLERS ──────────────────────────────────────────
 panels.forEach(panel => {
+    // --- File upload ---
     panel.fileInput.addEventListener('change', () => {
         const file = panel.fileInput.files?.[0];
         if (!file) return;
@@ -519,14 +590,15 @@ panels.forEach(panel => {
         panel.lastVideoTime = -1;
         panel.lastResult = null;
         panel.ended = false;
+        panel.trimStart = null;
+        panel.trimEnd = null;
         resetAnalyticsState(panel.analytics);
-
-        // Hide summary when loading new videos
         hideComparisonSummary();
 
         panel.video.onloadedmetadata = () => {
             resizePanel(panel);
             panel.video.play();
+            if (panel.ppBtn) panel.ppBtn.textContent = '⏸';
             if (panel.labelEl) panel.labelEl.textContent = file.name;
             setStatus(`${panel.id.toUpperCase()}: ${file.name}`);
         };
@@ -534,10 +606,145 @@ panels.forEach(panel => {
         if (animationFrameId === null) trackFrame();
     });
 
-    // Show summary when a video ends
+    // --- Play/Pause per panel ---
+    if (panel.ppBtn) {
+        panel.ppBtn.addEventListener('click', () => {
+            if (panel.video.paused) {
+                // If at trim end, loop back to trim start
+                const range = getRange(panel);
+                if (panel.video.currentTime >= range.end - 0.1) {
+                    panel.video.currentTime = range.start;
+                    panel.ended = false;
+                    resetAnalyticsState(panel.analytics);
+                    panel.cogHistory.length = 0;
+                    panel.prevSmoothedCOG = null;
+                    panel.prevSmoothedOptimal = null;
+                }
+                panel.video.play();
+                panel.ppBtn.textContent = '⏸';
+            } else {
+                panel.video.pause();
+                panel.ppBtn.textContent = '▶';
+            }
+        });
+    }
+
+    // --- Seek bar per panel ---
+    if (panel.seekBar) {
+        panel.seekBar.addEventListener('input', () => {
+            const range = getRange(panel);
+            const time = range.start + (panel.seekBar.value / 1000) * range.duration;
+            panel.video.currentTime = time;
+            // Reset EMA state on seek to avoid ghost data
+            panel.cogHistory.length = 0;
+            panel.cogPath.length = 0;
+            panel.prevSmoothedCOG = null;
+            panel.prevSmoothedOptimal = null;
+        });
+    }
+
+    // --- Trim drag handles ---
+    const trimTrack = document.getElementById(`trim-track-${panel.id}`);
+    const trimFill = document.getElementById(`trim-fill-${panel.id}`);
+    const trimHandleStart = document.getElementById(`trim-handle-start-${panel.id}`);
+    const trimHandleEnd = document.getElementById(`trim-handle-end-${panel.id}`);
+    const trimTimeStart = document.getElementById(`trim-time-start-${panel.id}`);
+    const trimTimeEnd = document.getElementById(`trim-time-end-${panel.id}`);
+    const trimResetBtn = document.getElementById(`trim-reset-${panel.id}`);
+
+    // Update trim slider visual positions
+    function updateTrimVisuals() {
+        if (!trimTrack || !trimFill || !trimHandleStart || !trimHandleEnd) return;
+        const dur = panel.video.duration || 1;
+        const startPct = ((panel.trimStart ?? 0) / dur) * 100;
+        const endPct = ((panel.trimEnd ?? dur) / dur) * 100;
+        trimHandleStart.style.left = `${startPct}%`;
+        trimHandleEnd.style.left = `${endPct}%`;
+        trimFill.style.left = `${startPct}%`;
+        trimFill.style.width = `${endPct - startPct}%`;
+        if (trimTimeStart) trimTimeStart.textContent = fmtTime(panel.trimStart ?? 0);
+        if (trimTimeEnd) trimTimeEnd.textContent = fmtTime(panel.trimEnd ?? dur);
+    }
+
+    // Drag logic
+    function initTrimDrag(handleEl, which) {
+        if (!handleEl || !trimTrack) return;
+
+        function onPointerDown(e) {
+            e.preventDefault();
+            handleEl.classList.add('dragging');
+
+            const trackRect = trimTrack.getBoundingClientRect();
+            const dur = panel.video.duration || 1;
+
+            function onPointerMove(e2) {
+                const x = (e2.clientX - trackRect.left) / trackRect.width;
+                const t = Math.max(0, Math.min(1, x)) * dur;
+
+                if (which === 'start') {
+                    panel.trimStart = Math.min(t, (panel.trimEnd ?? dur) - 0.1);
+                } else {
+                    panel.trimEnd = Math.max(t, (panel.trimStart ?? 0) + 0.1);
+                }
+                updateTrimVisuals();
+            }
+
+            function onPointerUp() {
+                handleEl.classList.remove('dragging');
+                document.removeEventListener('pointermove', onPointerMove);
+                document.removeEventListener('pointerup', onPointerUp);
+                // Reset analytics after trim change
+                panel.ended = false;
+                resetAnalyticsState(panel.analytics);
+                panel.cogHistory.length = 0;
+                panel.prevSmoothedCOG = null;
+                panel.prevSmoothedOptimal = null;
+                // Clamp current time if outside range
+                const range = getRange(panel);
+                if (panel.video.currentTime < range.start) panel.video.currentTime = range.start;
+                if (panel.video.currentTime > range.end) panel.video.currentTime = range.end;
+            }
+
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+        }
+
+        handleEl.addEventListener('pointerdown', onPointerDown);
+    }
+
+    initTrimDrag(trimHandleStart, 'start');
+    initTrimDrag(trimHandleEnd, 'end');
+
+    // Update visuals when video loads
+    panel.video.addEventListener('loadedmetadata', () => updateTrimVisuals());
+
+    // Reset button
+    if (trimResetBtn) {
+        trimResetBtn.addEventListener('click', () => {
+            panel.trimStart = null;
+            panel.trimEnd = null;
+            updateTrimVisuals();
+            panel.ended = false;
+            resetAnalyticsState(panel.analytics);
+            panel.cogHistory.length = 0;
+            panel.prevSmoothedCOG = null;
+            panel.prevSmoothedOptimal = null;
+        });
+    }
+
+    // --- Video ended event ---
     panel.video.addEventListener('ended', () => {
         panel.ended = true;
+        if (panel.ppBtn) panel.ppBtn.textContent = '▶';
         showComparisonSummary();
+    });
+
+    // --- Sync play/pause icon ---
+    panel.video.addEventListener('play', () => {
+        if (panel.ppBtn) panel.ppBtn.textContent = '⏸';
+    });
+    panel.video.addEventListener('pause', () => {
+        if (panel.ppBtn) panel.ppBtn.textContent = '▶';
     });
 });
 
@@ -546,6 +753,24 @@ window._hideComparisonSummary = hideComparisonSummary;
 window._showComparisonSummary = showComparisonSummary;
 window._comparePanels = panels;
 
-// ─── BOOT ─────────────────────────────────────────────────────────────────────
-await loadLandmarker();
+// ─── MODEL / DELEGATE SWITCHING ────────────────────────────────────────────
+async function reloadModel() {
+    const modelKey = modelSelect?.value || 'full';
+    const delegate = delegateSelect?.value || 'GPU';
+    if (modelSelect) modelSelect.disabled = true;
+    if (delegateSelect) delegateSelect.disabled = true;
+    try {
+        await loadLandmarker(modelKey, delegate);
+    } catch (e) {
+        setStatus(`Error loading ${modelKey} (${delegate}) — ${e.message}`);
+    }
+    if (modelSelect) modelSelect.disabled = false;
+    if (delegateSelect) delegateSelect.disabled = false;
+}
+
+if (modelSelect) modelSelect.addEventListener('change', reloadModel);
+if (delegateSelect) delegateSelect.addEventListener('change', reloadModel);
+
+// ─── BOOT ───────────────────────────────────────────────────────────────────────
+await loadLandmarker(modelSelect?.value || 'full', delegateSelect?.value || 'CPU');
 trackFrame();
