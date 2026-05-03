@@ -16,6 +16,60 @@ const statusText = document.getElementById('status-text');
 let poseLandmarker;
 let animationFrameId = null;
 let lastVideoTime = -1;
+let currentObjectUrl = null;
+
+// --- COG TRACKING CONFIGURATION ---
+const cogHistory = [];
+const cogPath = [];
+const SMOOTHING_WINDOW = 5; // Average over 5 frames to reduce jitter
+const MAX_PATH_POINTS = 300;
+
+function getMidpoint(p1, p2) {
+    return {
+        x: (p1.x + p2.x) / 2,
+        y: (p1.y + p2.y) / 2,
+        z: (p1.z + p2.z) / 2
+    };
+}
+
+function calculateCOG(landmarks) {
+    // 1. Define Key Segments
+    const head = landmarks[0]; // Nose
+    const shoulderMid = getMidpoint(landmarks[11], landmarks[12]);
+    const hipMid = getMidpoint(landmarks[23], landmarks[24]);
+    const trunk = getMidpoint(shoulderMid, hipMid);
+
+    const segments = [
+        { pos: head, weight: 0.08 },
+        { pos: trunk, weight: 0.50 },
+        { pos: getMidpoint(landmarks[23], landmarks[25]), weight: 0.10 }, // R-Thigh
+        { pos: getMidpoint(landmarks[24], landmarks[26]), weight: 0.10 }, // L-Thigh
+        { pos: getMidpoint(landmarks[25], landmarks[27]), weight: 0.06 }, // R-Leg
+        { pos: getMidpoint(landmarks[26], landmarks[28]), weight: 0.06 }, // L-Leg
+        { pos: getMidpoint(landmarks[11], landmarks[13]), weight: 0.03 }, // R-UpperArm
+        { pos: getMidpoint(landmarks[12], landmarks[14]), weight: 0.03 }, // L-UpperArm
+        { pos: getMidpoint(landmarks[13], landmarks[15]), weight: 0.02 }, // R-Forearm
+        { pos: getMidpoint(landmarks[14], landmarks[16]), weight: 0.02 }, // L-Forearm
+    ];
+
+    let rawCOG = { x: 0, y: 0 };
+    segments.forEach(s => {
+        rawCOG.x += s.pos.x * s.weight;
+        rawCOG.y += s.pos.y * s.weight;
+    });
+
+    // 2. Apply Smoothing
+    cogHistory.push(rawCOG);
+    if (cogHistory.length > SMOOTHING_WINDOW) cogHistory.shift();
+
+    const smoothedCOG = cogHistory.reduce((acc, curr) => ({
+        x: acc.x + curr.x / cogHistory.length,
+        y: acc.y + curr.y / cogHistory.length
+    }), { x: 0, y: 0 });
+
+    return smoothedCOG;
+}
+// ----------------------------------
 
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
@@ -28,7 +82,7 @@ function resizeCanvas() {
     // Let the browser naturally report the dimensions without manually swapping them
     const vw = video.videoWidth || 1280;
     const vh = video.videoHeight || 720;
-    
+
     // Set both canvases to perfectly match the video
     inputCanvas.width = vw;
     inputCanvas.height = vh;
@@ -47,17 +101,38 @@ function stopActiveStream() {
 
 function resetLoop() {
     lastVideoTime = -1;
+    cogHistory.length = 0; // Clear history on new video/webcam
+    cogPath.length = 0;
     if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
     }
 }
 
+function drawCogPath() {
+    if (cogPath.length < 2) {
+        return;
+    }
+
+    canvasContext.save();
+    canvasContext.beginPath();
+    canvasContext.moveTo(cogPath[0].x, cogPath[0].y);
+    for (let i = 1; i < cogPath.length; i += 1) {
+        canvasContext.lineTo(cogPath[i].x, cogPath[i].y);
+    }
+    canvasContext.strokeStyle = '#ffd166';
+    canvasContext.lineWidth = 3;
+    canvasContext.lineJoin = 'round';
+    canvasContext.lineCap = 'round';
+    canvasContext.stroke();
+    canvasContext.restore();
+}
+
 function drawResults(result) {
     canvasContext.save();
     canvasContext.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // CRITICAL FIX: Draw the upright inputCanvas, NOT the raw sideways video
+
+    // Draw the upright inputCanvas (the browser automatically fixes orientation)
     canvasContext.drawImage(inputCanvas, 0, 0, canvas.width, canvas.height);
 
     const landmarks = result.landmarks?.[0];
@@ -72,44 +147,35 @@ function drawResults(result) {
             radius: 2
         });
 
-        // 2. Helper to get midpoint of two landmarks
-        const mid = (idx1, idx2) => ({
-            x: (landmarks[idx1].x + landmarks[idx2].x) / 2,
-            y: (landmarks[idx1].y + landmarks[idx2].y) / 2
+        // 2. Calculate and draw COG with trail
+        const cog = calculateCOG(landmarks);
+        cogPath.push({
+            x: cog.x * canvas.width,
+            y: cog.y * canvas.height
         });
+        if (cogPath.length > MAX_PATH_POINTS) {
+            cogPath.shift();
+        }
 
-        // 3. Define Body Segments and Weights (Scientific Anthropometric Data)
-        const segments = [
-            { pos: landmarks[0], weight: 0.08 },                       // Head (Nose)
-            { pos: mid(11, 24), weight: 0.50 },                        // Torso (Shoulder to Hip center)
-            { pos: mid(23, 25), weight: 0.10 }, { pos: mid(24, 26), weight: 0.10 }, // Thighs
-            { pos: mid(25, 27), weight: 0.06 }, { pos: mid(26, 28), weight: 0.06 }, // Lower Legs
-            { pos: mid(11, 13), weight: 0.03 }, { pos: mid(12, 14), weight: 0.03 }, // Upper Arms
-            { pos: mid(13, 15), weight: 0.02 }, { pos: mid(14, 16), weight: 0.02 }  // Forearms
-        ];
+        drawCogPath();
 
-        // 4. Calculate Weighted Center of Gravity
-        let cogX = 0;
-        let cogY = 0;
-        
-        segments.forEach(s => {
-            cogX += s.pos.x * s.weight;
-            cogY += s.pos.y * s.weight;
-        });
-
-        // 5. Draw the COG Indicator
+        // Draw COG Outer Ring
         canvasContext.beginPath();
-        // Drawing a "crosshair" or target style for better visibility
-        canvasContext.arc(cogX * canvas.width, cogY * canvas.height, 12, 0, Math.PI * 2);
+        canvasContext.arc(cog.x * canvas.width, cog.y * canvas.height, 12, 0, Math.PI * 2);
         canvasContext.strokeStyle = '#ffd166';
         canvasContext.lineWidth = 3;
         canvasContext.stroke();
-        
-        // Inner dot
+
+        // Draw COG Center Point
         canvasContext.beginPath();
-        canvasContext.arc(cogX * canvas.width, cogY * canvas.height, 4, 0, Math.PI * 2);
+        canvasContext.arc(cog.x * canvas.width, cog.y * canvas.height, 4, 0, Math.PI * 2);
         canvasContext.fillStyle = '#ffd166';
         canvasContext.fill();
+
+        // Label the COG
+        canvasContext.fillStyle = '#ffd166';
+        canvasContext.font = 'bold 12px Inter, sans-serif';
+        canvasContext.fillText('COG', (cog.x * canvas.width) + 15, (cog.y * canvas.height) + 5);
     }
 
     canvasContext.restore();
@@ -153,7 +219,7 @@ function trackFrame() {
 
         // 2. Run detection on the perfectly upright input canvas
         const result = poseLandmarker.detectForVideo(inputCanvas, performance.now());
-        
+
         // 3. Send results to be drawn
         drawResults(result);
     }
@@ -192,9 +258,11 @@ videoFileInput.addEventListener('change', async () => {
     stopActiveStream();
     resetLoop();
 
-    const objectUrl = URL.createObjectURL(file);
-    video.srcObject = null;
-    video.src = objectUrl;
+    if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+    }
+    currentObjectUrl = URL.createObjectURL(file);
+    video.src = currentObjectUrl;
     video.onloadedmetadata = async () => {
         resizeCanvas();
         await video.play();
