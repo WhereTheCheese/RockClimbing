@@ -40,6 +40,7 @@ const optimalHistory = [];
 const cogPath = [];
 const SMOOTHING_WINDOW = 5;
 const MAX_PATH_POINTS = 300;
+const MAX_DETECTION_WIDTH = 640; // Scale down for MediaPipe — it doesn't need full-res frames
 
 function getMidpoint(p1, p2) {
     return {
@@ -147,10 +148,15 @@ function setStatus(message) {
 function resizeCanvas() {
     const vw = video.videoWidth || 1280;
     const vh = video.videoHeight || 720;
-    inputCanvas.width = vw;
-    inputCanvas.height = vh;
+
+    // Overlay stays at full resolution for crisp visuals
     canvas.width = vw;
     canvas.height = vh;
+
+    // Detection canvas scaled down — MediaPipe doesn't need full-res
+    const scale = Math.min(1, MAX_DETECTION_WIDTH / vw);
+    inputCanvas.width = Math.round(vw * scale);
+    inputCanvas.height = Math.round(vh * scale);
 }
 
 function resizeVelocityChart() {
@@ -201,7 +207,8 @@ function drawCogPath() {
 function drawResults(result) {
     canvasContext.save();
     canvasContext.clearRect(0, 0, canvas.width, canvas.height);
-    canvasContext.drawImage(inputCanvas, 0, 0, canvas.width, canvas.height);
+    // Draw from the original video (full-res), not the scaled-down detection canvas
+    canvasContext.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const landmarks = result.landmarks?.[0];
     if (landmarks?.length) {
