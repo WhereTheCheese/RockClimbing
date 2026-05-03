@@ -20,7 +20,7 @@ let currentObjectUrl = null;
 
 // --- CONFIGURATION & TRACKING HISTORY ---
 const cogHistory = [];
-const optimalHistory = []; // Smoother for the optimal point
+const optimalHistory = []; 
 const cogPath = [];
 const SMOOTHING_WINDOW = 5; 
 const MAX_PATH_POINTS = 300;
@@ -71,25 +71,55 @@ function calculateCOG(landmarks) {
 }
 
 /**
- * Calculates the "Optimal X" (midpoint of ankles) projected onto current Y
+ * Calculates the "Achievable Optimal X" by interpolating between the 
+ * base of support (feet) and the upper anchor (hands) at the current COG height.
  */
 function calculateOptimalCOG(landmarks, currentCog) {
     const leftAnkle = landmarks[27];
     const rightAnkle = landmarks[28];
+    const leftWrist = landmarks[15];
+    const rightWrist = landmarks[16];
     
-    // Check visibility/presence of feet
-    if (!leftAnkle || !rightAnkle || leftAnkle.visibility < 0.5 || rightAnkle.visibility < 0.5) return null;
+    if (!leftAnkle || !rightAnkle || !leftWrist || !rightWrist) return null;
 
-    const baseMidpointX = (leftAnkle.x + rightAnkle.x) / 2;
-    const rawOptimal = { x: baseMidpointX, y: currentCog.y };
+    // 1. Define Lower Anchor (Base of Support)
+    const baseX = (leftAnkle.x + rightAnkle.x) / 2;
+    const baseY = (leftAnkle.y + rightAnkle.y) / 2;
+
+    // 2. Define Upper Anchor (Pull Center)
+    const pullX = (leftWrist.x + rightWrist.x) / 2;
+    const pullY = (leftWrist.y + rightWrist.y) / 2;
+
+    let optimalX;
+
+    // 3. Find where the current Y intersects the Tension Line
+    // Prevent divide by zero if hands and feet are exactly horizontal (e.g., severe heel hook)
+    if (Math.abs(pullY - baseY) < 0.001) {
+        optimalX = baseX; 
+    } else {
+        // Calculate the percentage of height (t) the COG is at between feet and hands
+        const t = (currentCog.y - baseY) / (pullY - baseY);
+        // Map that percentage to the X axis
+        optimalX = baseX + t * (pullX - baseX);
+    }
+
+    const rawOptimal = { 
+        x: optimalX, 
+        y: currentCog.y,
+        // We return the anchor points to draw the Tension Line in drawResults
+        anchors: { baseX, baseY, pullX, pullY } 
+    };
 
     optimalHistory.push(rawOptimal);
     if (optimalHistory.length > SMOOTHING_WINDOW) optimalHistory.shift();
 
-    return optimalHistory.reduce((acc, curr) => ({
+    const smoothed = optimalHistory.reduce((acc, curr) => ({
         x: acc.x + curr.x / optimalHistory.length,
-        y: acc.y + curr.y / optimalHistory.length
+        y: acc.y + curr.y / optimalHistory.length,
+        anchors: rawOptimal.anchors // Keep current anchors for drawing
     }), { x: 0, y: 0 });
+
+    return smoothed;
 }
 
 // --- UTILITIES ---
@@ -136,7 +166,7 @@ function drawCogPath() {
     for (let i = 1; i < cogPath.length; i++) {
         canvasContext.lineTo(cogPath[i].x, cogPath[i].y);
     }
-    canvasContext.strokeStyle = 'rgba(255, 209, 102, 0.4)'; // Faded yellow trail
+    canvasContext.strokeStyle = 'rgba(255, 209, 102, 0.4)';
     canvasContext.lineWidth = 2;
     canvasContext.stroke();
     canvasContext.restore();
@@ -158,7 +188,7 @@ function drawResults(result) {
 
         // 2. Calculations
         const currentCog = calculateCOG(landmarks);
-        const optimalCog = calculateOptimalCOG(landmarks, currentCog);
+        const optimalData = calculateOptimalCOG(landmarks, currentCog);
 
         // Update Path
         cogPath.push({ x: currentCog.x * canvas.width, y: currentCog.y * canvas.height });
@@ -166,27 +196,28 @@ function drawResults(result) {
         drawCogPath();
 
         // 3. Draw Optimal Elements
-        if (optimalCog) {
-            // Balance Line (Vertical)
+        if (optimalData) {
+            // The Axis of Tension (Line connecting Hands to Feet)
             canvasContext.setLineDash([5, 5]);
             canvasContext.beginPath();
-            canvasContext.moveTo(optimalCog.x * canvas.width, 0);
-            canvasContext.lineTo(optimalCog.x * canvas.width, canvas.height);
-            canvasContext.strokeStyle = 'rgba(0, 242, 255, 0.3)';
+            canvasContext.moveTo(optimalData.anchors.baseX * canvas.width, optimalData.anchors.baseY * canvas.height);
+            canvasContext.lineTo(optimalData.anchors.pullX * canvas.width, optimalData.anchors.pullY * canvas.height);
+            canvasContext.strokeStyle = 'rgba(0, 242, 255, 0.4)';
+            canvasContext.lineWidth = 2;
             canvasContext.stroke();
             canvasContext.setLineDash([]);
 
-            // Effort Gap (Horizontal line between Current and Optimal)
+            // Effort Gap (Horizontal line between Current COG and the Tension Line)
             canvasContext.beginPath();
             canvasContext.moveTo(currentCog.x * canvas.width, currentCog.y * canvas.height);
-            canvasContext.lineTo(optimalCog.x * canvas.width, optimalCog.y * canvas.height);
+            canvasContext.lineTo(optimalData.x * canvas.width, optimalData.y * canvas.height);
             canvasContext.strokeStyle = '#ff4d4d'; 
             canvasContext.lineWidth = 3;
             canvasContext.stroke();
 
-            // Optimal Point
+            // Achievable Optimal Point on the Tension Line
             canvasContext.beginPath();
-            canvasContext.arc(optimalCog.x * canvas.width, optimalCog.y * canvas.height, 6, 0, Math.PI * 2);
+            canvasContext.arc(optimalData.x * canvas.width, optimalData.y * canvas.height, 6, 0, Math.PI * 2);
             canvasContext.fillStyle = '#00f2ff';
             canvasContext.fill();
         }
@@ -211,12 +242,12 @@ function drawResults(result) {
         canvasContext.font = 'bold 12px Inter, sans-serif';
         canvasContext.fillText('CURRENT', cx + 15, cy - 5);
         
-        if (optimalCog) {
+        if (optimalData) {
             canvasContext.fillStyle = '#00f2ff';
-            canvasContext.fillText('OPTIMAL', (optimalCog.x * canvas.width) + 15, (optimalCog.y * canvas.height) + 15);
+            canvasContext.fillText('Optimal COM', (optimalData.x * canvas.width) + 15, (optimalData.y * canvas.height) + 15);
         }
 
-        // --- CALCULATE DATA ANALYTICS (FLOW STATE SCORE) ---
+        // --- CALCULATE DATA ANALYTICS ---
         analyzeFlowState(cogHistory, canvasContext, canvas.width, canvas.height);
     }
 
