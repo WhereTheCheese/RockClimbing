@@ -1,4 +1,5 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
+import { calculateDetailedMetrics } from './dataAnalysis.js';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
@@ -12,9 +13,11 @@ let poseLandmarker;
 let animationFrameId = null;
 let frameCount = 0;
 
-// ─── SHARED OFFSCREEN CANVAS (single instance, reused for both videos) ────────
-const inputCanvas = document.createElement('canvas');
-const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
+// ─── SEPARATE OFFSCREEN CANVASES (one per video for proper tracking) ──────────
+const inputCanvasA = document.createElement('canvas');
+const inputCtxA = inputCanvasA.getContext('2d', { willReadFrequently: true });
+const inputCanvasB = document.createElement('canvas');
+const inputCtxB = inputCanvasB.getContext('2d', { willReadFrequently: true });
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const statusText = document.getElementById('status-text');
@@ -35,6 +38,10 @@ function createPanel(id) {
     const accuracyEl = document.getElementById(`accuracy-${id}`);
     const velocityEl = document.getElementById(`velocity-${id}`);
 
+    // Assign dedicated input canvas and context to each panel
+    const inputCanvas = id === 'a' ? inputCanvasA : inputCanvasB;
+    const inputCtx = id === 'a' ? inputCtxA : inputCtxB;
+    
     return {
         id, video, canvas, ctx, drawUtils, fileInput, labelEl,
         stabilityEl, accuracyEl, velocityEl,
@@ -44,6 +51,10 @@ function createPanel(id) {
         lastVideoTime: -1,
         lastResult: null,
         objectUrl: null,
+        alignedFrames: 0,
+        totalFrames: 0,
+        inputCanvas,
+        inputCtx,
     };
 }
 
@@ -108,14 +119,18 @@ function calculateOptimalCOG(landmarks, cog, panel) {
 function drawPanel(panel) {
     const { ctx, canvas, video, drawUtils, cogHistory, cogPath, optimalHistory,
         stabilityEl, accuracyEl, velocityEl, lastResult } = panel;
-    if (!lastResult) return;
-
+    
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const landmarks = lastResult.landmarks?.[0];
-    if (!landmarks?.length) { ctx.restore(); return; }
+    // Only draw skeleton if we have a valid result with landmarks
+    if (!lastResult || !lastResult.landmarks?.[0]?.length) {
+        ctx.restore();
+        return;
+    }
+
+    const landmarks = lastResult.landmarks[0];
 
     const s = Math.max(canvas.width, canvas.height) / 720;
 
@@ -183,13 +198,36 @@ function drawPanel(panel) {
         }
     }
 
-    // COG accuracy readout
+    // Calculate detailed metrics (instant accuracy and session stability)
     if (optimal && stabilityEl && accuracyEl) {
-        const gap = Math.abs(cog.x - optimal.x);
-        const instant = Math.max(0, Math.min(100, (1 - gap / 0.1) * 100));
+        panel.totalFrames++;
+        
+        // Calculate metrics using the same function as single mode
+        const metrics = calculateDetailedMetrics(cog, optimal);
+        
+        // Track aligned frames for this panel
+        const horizontalGap = Math.abs(cog.x - optimal.x);
+        const HORIZONTAL_THRESHOLD = 0.05;
+        if (horizontalGap <= HORIZONTAL_THRESHOLD) {
+            panel.alignedFrames++;
+        }
+        
+        // Update DOM every other frame to reduce overhead
         if (frameCount % 2 === 0) {
-            accuracyEl.textContent = `${instant.toFixed(1)}%`;
-            accuracyEl.style.color = instant > 80 ? '#4ade80' : '#facc15';
+            // Average Stability (session metric)
+            if (stabilityEl) {
+                const sessionStability = ((panel.alignedFrames / panel.totalFrames) * 100).toFixed(1);
+                stabilityEl.textContent = `${sessionStability}%`;
+                stabilityEl.style.color = parseFloat(sessionStability) > 70 ? '#67f2c4' : '#ffd166';
+                stabilityEl.classList.remove('dim');
+            }
+            
+            // Frame Stability (instant metric)
+            if (accuracyEl) {
+                accuracyEl.textContent = `${metrics.instant}%`;
+                accuracyEl.style.color = parseFloat(metrics.instant) > 80 ? '#4ade80' : '#facc15';
+                accuracyEl.classList.remove('dim');
+            }
         }
     }
 
@@ -214,10 +252,10 @@ function resizePanel(panel) {
     const vh = panel.video.videoHeight || 720;
     panel.canvas.width = vw;
     panel.canvas.height = vh;
-    // Keep inputCanvas sized to the largest we'll process
+    // Keep this panel's input canvas sized appropriately
     const scale = Math.min(1, MAX_DETECTION_WIDTH / Math.max(vw, 1));
-    inputCanvas.width = Math.round(vw * scale);
-    inputCanvas.height = Math.round(vh * scale);
+    panel.inputCanvas.width = Math.round(vw * scale);
+    panel.inputCanvas.height = Math.round(vh * scale);
 }
 
 // ─── CORE LOOP ────────────────────────────────────────────────────────────────
@@ -229,24 +267,31 @@ function trackFrame() {
 
     frameCount++;
 
-    // Stagger: even frames → panel A, odd frames → panel B
-    // Net inference cost = same as a single video
-    const targets = frameCount % 2 === 0
-        ? [panels[0], panels[1]]   // A then (draw) B
-        : [panels[1], panels[0]];  // B then (draw) A
+    // Stagger detection: only detect ONE panel per frame for better performance
+    // Panel A on even frames, Panel B on odd frames
+    const detectPanelIndex = frameCount % 2;
 
-    const detect = targets[0];
-    if (detect.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        detect.video.currentTime !== detect.lastVideoTime) {
+    panels.forEach((panel, index) => {
+        if (panel.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+            panel.video.currentTime !== panel.lastVideoTime) {
 
-        detect.lastVideoTime = detect.video.currentTime;
-        resizePanel(detect); // keep inputCanvas sized to current video
-        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
-        inputCtx.drawImage(detect.video, 0, 0, inputCanvas.width, inputCanvas.height);
-        detect.lastResult = poseLandmarker.detectForVideo(inputCanvas, performance.now());
-    }
+            panel.lastVideoTime = panel.video.currentTime;
+            
+            // Only run detection for the designated panel this frame
+            if (index === detectPanelIndex) {
+                resizePanel(panel);
+                
+                // Use this panel's dedicated input canvas
+                panel.inputCtx.clearRect(0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
+                panel.inputCtx.drawImage(panel.video, 0, 0, panel.inputCanvas.width, panel.inputCanvas.height);
+                
+                // Run pose detection
+                panel.lastResult = poseLandmarker.detectForVideo(panel.inputCanvas, performance.now());
+            }
+        }
+    });
 
-    // Draw both panels every rAF tick
+    // Draw both panels every frame (each uses its most recent detection)
     panels.forEach(drawPanel);
 
     animationFrameId = requestAnimationFrame(trackFrame);
@@ -263,9 +308,9 @@ async function loadLandmarker() {
         },
         runningMode: 'VIDEO',
         numPoses: 1,
-        minPoseDetectionConfidence: 0.5,
-        minPosePresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
+        minPoseDetectionConfidence: 0.3,  // Lower threshold for better detection
+        minPosePresenceConfidence: 0.3,   // Lower threshold for better detection
+        minTrackingConfidence: 0.3,       // Lower threshold for better tracking
     });
 
     // GPU pre-warm
@@ -296,6 +341,8 @@ panels.forEach(panel => {
         panel.cogPath.length = 0;
         panel.lastVideoTime = -1;
         panel.lastResult = null;
+        panel.alignedFrames = 0;
+        panel.totalFrames = 0;
         panel.video.onloadedmetadata = () => {
             resizePanel(panel);
             panel.video.play();
