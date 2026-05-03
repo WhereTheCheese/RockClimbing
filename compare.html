@@ -192,6 +192,35 @@
         }
         .stage-hint .icon { font-size: 2.5rem; opacity: 0.4; }
 
+        /* ── Individual Video Controls ── */
+        .video-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg);
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .video-controls input[type="range"] {
+            flex: 1;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        .video-controls input[type="range"]:disabled {
+            cursor: not-allowed;
+        }
+
+        .time-display {
+            font-family: 'Open Sans', monospace;
+            font-size: 0.85rem;
+            color: var(--muted);
+            min-width: 90px;
+            text-align: right;
+        }
+
         /* ── Stats row ── */
         .stats-row {
             display: grid;
@@ -281,7 +310,6 @@
         </div>
     </header>
 
-    <!-- ── Sync controls ── -->
     <div class="sync-bar">
         <span class="sync-label">Playback:</span>
         <button class="sync-btn secondary" id="prev-frame-btn" title="Previous Frame">◄◄</button>
@@ -300,10 +328,8 @@
         </select>
     </div>
 
-    <!-- ── Side-by-side panels ── -->
     <main class="compare-grid">
 
-        <!-- Panel A -->
         <section class="video-panel" id="panel-a">
             <div class="panel-header">
                 <span class="run-tag a">Run A</span>
@@ -321,6 +347,10 @@
                     Upload a climbing video for Run A
                 </div>
             </div>
+            <div class="video-controls">
+                <input type="range" id="seek-bar-a" value="0" min="0" step="0.01" disabled>
+                <span class="time-display" id="time-display-a">0:00 / 0:00</span>
+            </div>
             <div class="stats-row">
                 <div class="stat-card">
                     <div class="stat-label">CoM Stability</div>
@@ -337,7 +367,6 @@
             </div>
         </section>
 
-        <!-- Panel B -->
         <section class="video-panel" id="panel-b">
             <div class="panel-header">
                 <span class="run-tag b">Run B</span>
@@ -354,6 +383,10 @@
                     <span class="icon">🎬</span>
                     Upload a climbing video for Run B
                 </div>
+            </div>
+            <div class="video-controls">
+                <input type="range" id="seek-bar-b" value="0" min="0" step="0.01" disabled>
+                <span class="time-display" id="time-display-b">0:00 / 0:00</span>
             </div>
             <div class="stats-row">
                 <div class="stat-card">
