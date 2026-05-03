@@ -12,10 +12,6 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const canvasContext = canvas.getContext('2d');
 
-//video.width = 640;
-//video.height = 480;
-
-
 const inputCanvas = document.createElement('canvas');
 const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
 
@@ -28,6 +24,11 @@ const statusText = document.getElementById('status-text');
 const velocityChart = document.getElementById('velocity-chart');
 const velocityCurrent = document.getElementById('data-velocity');
 const velocityChartCtx = velocityChart ? velocityChart.getContext('2d') : null;
+
+// Video controls
+const playPauseBtn = document.getElementById('play-pause-btn');
+const seekBar = document.getElementById('seek-bar');
+const timeDisplay = document.getElementById('time-display');
 
 // Analytics UI elements (cached so we don't query the DOM every frame)
 const stabilityCurrent = document.getElementById('data-stability');
@@ -398,6 +399,8 @@ webcamButton.addEventListener('click', async () => {
         resetLoop();
         video.srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
         await video.play();
+        playPauseBtn.disabled = true;
+        seekBar.disabled = true;
         resizeCanvas();
         trackFrame();
         setStatus('Webcam active.');
@@ -413,11 +416,49 @@ videoFileInput.addEventListener('change', async () => {
     currentObjectUrl = URL.createObjectURL(file);
     video.src = currentObjectUrl;
     video.onloadedmetadata = () => {
+        playPauseBtn.disabled = false;
+        seekBar.disabled = false;
+        playPauseBtn.textContent = 'Pause';
         resizeCanvas();
         video.play();
         trackFrame();
         setStatus(`Analyzing: ${file.name}`);
     };
+});
+
+// --- VIDEO CONTROLS ---
+
+function formatTime(seconds) {
+    if (isNaN(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+video.addEventListener('timeupdate', () => {
+    if (video.duration) {
+        seekBar.value = (video.currentTime / video.duration) * 100;
+        timeDisplay.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+    }
+});
+
+playPauseBtn.addEventListener('click', () => {
+    if (video.paused) {
+        video.play();
+        playPauseBtn.textContent = 'Pause';
+    } else {
+        video.pause();
+        playPauseBtn.textContent = 'Play';
+    }
+});
+
+seekBar.addEventListener('input', () => {
+    const time = (seekBar.value / 100) * video.duration;
+    video.currentTime = time;
+    // Clear histories so drawing doesn't jump
+    cogHistory.length = 0;
+    optimalHistory.length = 0;
+    cogPath.length = 0;
 });
 
 // Initialization
