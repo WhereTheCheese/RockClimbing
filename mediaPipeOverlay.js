@@ -1,4 +1,5 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
+import { resetAnalytics, analyzeFlowState } from './dataAnalysis.js';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
@@ -118,6 +119,7 @@ function resetLoop() {
     cogHistory.length = 0;
     optimalHistory.length = 0;
     cogPath.length = 0;
+    resetAnalytics();
     if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
@@ -213,6 +215,9 @@ function drawResults(result) {
             canvasContext.fillStyle = '#00f2ff';
             canvasContext.fillText('OPTIMAL', (optimalCog.x * canvas.width) + 15, (optimalCog.y * canvas.height) + 15);
         }
+
+        // --- CALCULATE DATA ANALYTICS (FLOW STATE SCORE) ---
+        analyzeFlowState(cogHistory, canvasContext, canvas.width, canvas.height);
     }
 
     canvasContext.restore();
