@@ -287,6 +287,15 @@
         <button class="sync-btn" id="play-both-btn">▶ Play Both</button>
         <button class="sync-btn secondary" id="pause-both-btn">⏸ Pause Both</button>
         <button class="sync-btn secondary" id="restart-btn">↺ Restart Both</button>
+        <select id="speed-control-compare" style="background:var(--panel);border:1px solid var(--panel-border);color:var(--text);border-radius:6px;padding:8px 12px;font-family:'Open Sans',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;">
+            <option value="0.25">0.25x</option>
+            <option value="0.5">0.5x</option>
+            <option value="0.75">0.75x</option>
+            <option value="1" selected>1x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+        </select>
     </div>
 
     <!-- ── Side-by-side panels ── -->
@@ -370,6 +379,7 @@
         const videoB = document.getElementById('video-b');
         const hintA  = document.getElementById('hint-a');
         const hintB  = document.getElementById('hint-b');
+        const speedControl = document.getElementById('speed-control-compare');
 
         // Hide hints once a video has loaded
         videoA.addEventListener('loadedmetadata', () => hintA.style.display = 'none');
@@ -388,6 +398,13 @@
             videoB.currentTime = 0;
             videoA.play();
             videoB.play();
+        });
+        
+        // Speed control for both videos
+        speedControl.addEventListener('change', () => {
+            const speed = parseFloat(speedControl.value);
+            videoA.playbackRate = speed;
+            videoB.playbackRate = speed;
         });
     </script>
 
