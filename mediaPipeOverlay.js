@@ -1,5 +1,11 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
-import { resetAnalytics, analyzeFlowState } from './dataAnalysis.js';
+import {
+    resetAnalytics,
+    analyzeSmoothness,
+    drawVelocityChart,
+    getCurrentVelocity,
+    getCurrentSmoothnessScore
+} from './dataAnalysis.js';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
@@ -12,6 +18,12 @@ const drawingUtils = new DrawingUtils(canvasContext);
 const webcamButton = document.getElementById('webcam-button');
 const videoFileInput = document.getElementById('video-file');
 const statusText = document.getElementById('status-text');
+
+// Velocity graph elements
+const velocityChart = document.getElementById('velocity-chart');
+const velocityCurrent = document.getElementById('velocity-current');
+const smoothnessCurrent = document.getElementById('smoothness-current');
+const velocityChartCtx = velocityChart ? velocityChart.getContext('2d') : null;
 
 let poseLandmarker;
 let animationFrameId = null;
@@ -137,6 +149,16 @@ function resizeCanvas() {
     canvas.height = vh;
 }
 
+function resizeVelocityChart() {
+    if (!velocityChart || !velocityChartCtx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = velocityChart.clientWidth || 320;
+    const cssHeight = velocityChart.clientHeight || 200;
+    velocityChart.width = Math.floor(cssWidth * dpr);
+    velocityChart.height = Math.floor(cssHeight * dpr);
+    velocityChartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
 function stopActiveStream() {
     if (video.srcObject) {
         for (const track of video.srcObject.getTracks()) track.stop();
@@ -248,7 +270,22 @@ function drawResults(result) {
         }
 
         // --- CALCULATE DATA ANALYTICS ---
-        analyzeFlowState(cogHistory, canvasContext, canvas.width, canvas.height);
+        analyzeSmoothness(cogHistory, canvasContext, canvas.width, canvas.height);
+
+        // Velocity graph of center of mass movement
+        if (velocityChartCtx) {
+            drawVelocityChart(
+                velocityChartCtx,
+                velocityChart.width / (window.devicePixelRatio || 1),
+                velocityChart.height / (window.devicePixelRatio || 1)
+            );
+        }
+        if (velocityCurrent) {
+            velocityCurrent.textContent = `${getCurrentVelocity().toFixed(1)} px/frame`;
+        }
+        if (smoothnessCurrent) {
+            smoothnessCurrent.textContent = getCurrentSmoothnessScore().toFixed(0);
+        }
     }
 
     canvasContext.restore();
@@ -323,3 +360,5 @@ const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmark
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
 await loadLandmarker();
 video.addEventListener('loadedmetadata', resizeCanvas);
+window.addEventListener('resize', resizeVelocityChart);
+resizeVelocityChart();
