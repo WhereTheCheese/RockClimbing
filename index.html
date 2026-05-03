@@ -171,8 +171,8 @@
             box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
         }
 
-        video,
-        canvas {
+        .stage video,
+        .stage canvas {
             position: absolute;
             inset: 0;
             width: 100%;
@@ -181,7 +181,7 @@
             /* Keeps vertical/horizontal videos correctly sized */
         }
 
-        canvas {
+        .stage canvas {
             pointer-events: none;
         }
 
@@ -258,14 +258,14 @@
             border: 1px solid var(--panel-border);
             border-radius: 8px;
             height: 220px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--muted);
-            font-size: 0.85rem;
-            font-style: italic;
-            text-align: center;
-            padding: 20px;
+            overflow: hidden;
+            padding: 8px;
+        }
+
+        #velocity-chart {
+            width: 100%;
+            height: 100%;
+            display: block;
         }
 
         @media (max-width: 1024px) {
@@ -333,7 +333,7 @@
                 <h2>Trajectory Analysis</h2>
             </div>
             <div class="chart-box" id="data-chart-container">
-                [ Data Analysis Visualization<br>Will Render Here ]
+                <canvas id="velocity-chart"></canvas>
             </div>
         </aside>
     </main>

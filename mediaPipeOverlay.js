@@ -21,8 +21,8 @@ const statusText = document.getElementById('status-text');
 
 // Velocity graph elements
 const velocityChart = document.getElementById('velocity-chart');
-const velocityCurrent = document.getElementById('velocity-current');
-const smoothnessCurrent = document.getElementById('smoothness-current');
+const velocityCurrent = document.getElementById('data-velocity');
+const smoothnessCurrent = document.getElementById('data-stability');
 const velocityChartCtx = velocityChart ? velocityChart.getContext('2d') : null;
 
 let poseLandmarker;
