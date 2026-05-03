@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ClimbAI — Run Comparison</title>
+    <title>ClimberAid — Run Comparison</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&family=Open+Sans:wght@400;600&display=swap');
 
@@ -272,7 +272,7 @@
 
     <header class="top-bar">
         <div class="brand">
-            <h1>Climb<span>AI</span></h1>
+            <h1>Climber<span>Aid</span></h1>
             <span class="page-tag">Run Comparison</span>
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -284,8 +284,10 @@
     <!-- ── Sync controls ── -->
     <div class="sync-bar">
         <span class="sync-label">Playback:</span>
+        <button class="sync-btn secondary" id="prev-frame-btn" title="Previous Frame">◄◄</button>
         <button class="sync-btn" id="play-both-btn">▶ Play Both</button>
         <button class="sync-btn secondary" id="pause-both-btn">⏸ Pause Both</button>
+        <button class="sync-btn secondary" id="next-frame-btn" title="Next Frame">►►</button>
         <button class="sync-btn secondary" id="restart-btn">↺ Restart Both</button>
         <select id="speed-control-compare" style="background:var(--panel);border:1px solid var(--panel-border);color:var(--text);border-radius:6px;padding:8px 12px;font-family:'Open Sans',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;">
             <option value="0.25">0.25x</option>
@@ -406,6 +408,27 @@
             videoA.playbackRate = speed;
             videoB.playbackRate = speed;
         });
+
+        // Frame stepping for both videos
+        function stepBothFrames(direction) {
+            const fps = 30;
+            const frameDuration = 1 / fps;
+            
+            // Pause both videos if playing
+            if (!videoA.paused) videoA.pause();
+            if (!videoB.paused) videoB.pause();
+            
+            // Step both videos
+            if (videoA.duration) {
+                videoA.currentTime = Math.max(0, Math.min(videoA.duration, videoA.currentTime + (direction * frameDuration)));
+            }
+            if (videoB.duration) {
+                videoB.currentTime = Math.max(0, Math.min(videoB.duration, videoB.currentTime + (direction * frameDuration)));
+            }
+        }
+
+        document.getElementById('prev-frame-btn').addEventListener('click', () => stepBothFrames(-1));
+        document.getElementById('next-frame-btn').addEventListener('click', () => stepBothFrames(1));
     </script>
 
 </body>
