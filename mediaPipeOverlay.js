@@ -30,6 +30,8 @@ const playPauseBtn = document.getElementById('play-pause-btn');
 const seekBar = document.getElementById('seek-bar');
 const timeDisplay = document.getElementById('time-display');
 const speedControl = document.getElementById('speed-control');
+const prevFrameBtn = document.getElementById('prev-frame-btn');
+const nextFrameBtn = document.getElementById('next-frame-btn');
 
 // Analytics UI elements (cached so we don't query the DOM every frame)
 const stabilityCurrent = document.getElementById('data-stability');
@@ -420,6 +422,8 @@ videoFileInput.addEventListener('change', async () => {
         playPauseBtn.disabled = false;
         seekBar.disabled = false;
         speedControl.disabled = false;
+        prevFrameBtn.disabled = false;
+        nextFrameBtn.disabled = false;
         playPauseBtn.textContent = 'Pause';
         resizeCanvas();
         video.play();
@@ -466,6 +470,51 @@ seekBar.addEventListener('input', () => {
 speedControl.addEventListener('change', () => {
     video.playbackRate = parseFloat(speedControl.value);
 });
+
+// Frame stepping functions
+async function stepFrame(direction) {
+    if (!video.duration || !poseLandmarker) return;
+    
+    // Pause the video if playing
+    if (!video.paused) {
+        video.pause();
+        playPauseBtn.textContent = 'Play';
+    }
+    
+    // Estimate frame duration (assuming 30fps, adjust if needed)
+    const fps = 30;
+    const frameDuration = 1 / fps;
+    
+    // Step forward or backward by one frame
+    video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + (direction * frameDuration)));
+    
+    // Clear histories so drawing doesn't jump
+    cogHistory.length = 0;
+    optimalHistory.length = 0;
+    cogPath.length = 0;
+    
+    // Wait for the video to seek to the new time, then manually process the frame
+    await new Promise(resolve => {
+        const onSeeked = () => {
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+        };
+        video.addEventListener('seeked', onSeeked);
+    });
+    
+    // Manually trigger frame processing
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
+        inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
+        lastDetectionResult = poseLandmarker.detectForVideo(inputCanvas, performance.now());
+        if (lastDetectionResult) {
+            drawResults(lastDetectionResult);
+        }
+    }
+}
+
+prevFrameBtn.addEventListener('click', () => stepFrame(-1));
+nextFrameBtn.addEventListener('click', () => stepFrame(1));
 
 // Initialization
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
