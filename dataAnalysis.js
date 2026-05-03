@@ -97,8 +97,8 @@ export function analyzeSmoothness(cogHistory, canvasContext, canvasWidth, canvas
 
             // 3. Map Variance to a 0-100 Score
             // A variance of 0 is perfect flow (100). 
-            // TWEAK THIS DIVISOR (e.g., 20) during the hackathon based on real test videos!
-            let scoreCalc = 100 - (variance / 10);
+            // TWEAK THIS DIVISOR 
+            let scoreCalc = 100 - (variance / 5);
 
             // Clamp the score between 0 and 100
             currentSmoothnessScore = Math.max(0, Math.min(100, scoreCalc));

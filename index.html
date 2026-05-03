@@ -185,6 +185,54 @@
             pointer-events: none;
         }
 
+        .video-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .video-controls button {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 600;
+        }
+
+        .video-controls button:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+        .video-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #seek-bar {
+            flex: 1;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        #seek-bar:disabled {
+            cursor: not-allowed;
+        }
+
+        #time-display {
+            font-family: 'Open Sans', monospace;
+            font-size: 0.85rem;
+            color: var(--muted);
+            min-width: 90px;
+            text-align: right;
+        }
+
         .hint {
             color: var(--muted);
             font-size: 0.85rem;
@@ -305,6 +353,13 @@
                 <video id="video" playsinline muted></video>
                 <canvas id="overlay"></canvas>
             </div>
+
+            <div class="video-controls">
+                <button id="play-pause-btn" disabled>Play</button>
+                <input type="range" id="seek-bar" value="0" min="0" step="0.01" disabled>
+                <span id="time-display">0:00 / 0:00</span>
+            </div>
+
             <div class="hint">Upload a video of your project or use the webcam to overlay skeletal tracking.</div>
         </section>
 
