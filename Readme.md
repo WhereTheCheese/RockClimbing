@@ -1,33 +1,197 @@
-https://drive.google.com/drive/folders/1cU3PPqO5yyzSqmKspAggIqzKcUFcy37z?usp=sharing
+# ClimberAid
 
-Extract the Skeleton: MediaPipe gives you 33 joint coordinates (X, Y) per video frame.
-Calculate Center of Mass (COM): You don't need perfect biomechanics. You can approximate the climber's COM by taking the average position of the two hip nodes (MediaPipe landmarks 23 and 24) and the two shoulder nodes (landmarks 11 and 12).
-Track the Path: Store the COM coordinate for every frame. Draw a line connecting them on an HTML5 Canvas layered over the video.
-Calculate "Smoothness" (The Wow Factor): Calculate the distance the COM moves between each frame. If the distance fluctuates wildly (stop-and-go movement), the score drops. If the velocity is relatively constant, the score is high (indicating "Flow").
+**AI-Powered Rock Climbing Performance Analysis**
 
-The Tech Stack (100% Browser-Based)
-Frontend Framework: React or Next.js (Tailwind for quick styling).
-AI/Vision: @mediapipe/pose (Google's official NPM package) or TensorFlow.js.
-Graphics: Standard HTML5 <canvas> positioned exactly on top of an HTML5 <video> element.
-Charts: Recharts or Chart.js to show the velocity/smoothness graph next to the video.
+ClimberAid is a browser-based biomechanics analysis tool that uses computer vision to help climbers improve their technique. By tracking your center of mass and body positioning in real-time, it provides instant feedback on balance, stability, and movement efficiency.
 
-The 24-Hour Execution Timeline
-Hours 1-4: The Skeleton (UI & Setup)
-Initialize the React app.
-Create a clean, dark-mode UI with an upload button for video files.
-Get the video playing in the browser with an invisible <canvas> perfectly overlaid on top of it.
-Hours 4-10: The Brains (MediaPipe Integration)
-Import MediaPipe. This is the hardest technical hurdle.
-Feed the video frames into MediaPipe's onResults callback.
-Draw simple circles on the canvas at the exact X/Y coordinates MediaPipe gives you for the hands and feet. Ensure they scale correctly with the video dimensions.
-Hours 10-16: The Logic (COM & The Trail)
-Write the function to calculate the Center of Mass from the hip and shoulder coordinates.
-Save the COM into an array for every frame.
-Write the canvas drawing logic to stroke a line connecting all the points in your COM array, creating the "glowing trail."
-Hours 16-20: The Polish (Metrics & Graphs)
-Write the math to calculate the "Smoothness Score" (velocity variance).
-Add a real-time line chart next to the video that spikes when the climber makes a jerky, inefficient move.
-Color-code the COM trail: Green for smooth movement, Red for jerky stops.
-Hours 20-24: The Pitch & Demo Prep
-Crucial: Do not rely on live demos failing! Pre-record a video of the app perfectly analyzing a climbing clip to show the judges, just in case the Wi-Fi drops.
-Practice the pitch: "We built an accessible, AI-driven biomechanics coach that runs entirely in your browser..."
+[![Live Demo](https://img.shields.io/badge/Demo-Live-success)](https://wherethecheese.github.io/RockClimbing/)
+
+---
+
+## Climbing Videos
+
+Access our collection of demo videos and sample climbing footage:
+**[Google Drive - Demo Videos](https://drive.google.com/drive/folders/1cU3PPqO5yyzSqmKspAggIqzKcUFcy37z?usp=sharing_eil_se_dm&ts=69f6d5a0)**
+
+---
+
+## Features
+
+### Real-Time Analysis
+- **Pose Detection**: 33-point skeletal tracking using Google MediaPipe
+- **Center of Mass (CoM) Tracking**: Anthropometric calculations for accurate body positioning
+- **Optimal Balance Line**: Visual guide showing the ideal CoM position based on hand and foot placement
+- **Smoothness Score**: Real-time feedback on movement efficiency and flow
+
+### Performance Metrics
+- **Average Stability**: Session-wide balance consistency percentage
+- **Frame Stability**: Instant accuracy of current body position
+- **Movement Velocity**: Speed analysis with variance detection
+- **Velocity Graph**: Visual timeline of movement patterns
+
+### Comparison Mode
+- Side-by-side video analysis
+- Synchronized playback controls
+- Comparative metrics dashboard
+- Frame-by-frame stepping
+
+### User-Friendly Controls
+- Upload video files or use live webcam
+- Adjustable playback speed (0.25x - 2x)
+- Frame-by-frame navigation
+- Multiple pose detection models (Lite/Full/Heavy)
+- GPU/CPU processing options
+
+---
+
+## Getting Started
+
+### Quick Start
+1. Open `index.html` in a modern web browser
+2. Upload a climbing video or start your webcam
+3. Watch as the AI analyzes your technique in real-time
+
+### No Installation Required
+ClimberAid runs entirely in your browser - no backend, no downloads, no setup!
+
+### Supported Browsers
+- Chrome/Edge (Recommended)
+- Firefox
+- Safari
+
+---
+
+## Technology Stack
+
+### Frontend
+- **Pure HTML5/CSS3/JavaScript** - No framework dependencies
+- **Vanilla JS Modules** - Modern ES6+ architecture
+
+### AI/Computer Vision
+- **MediaPipe Pose Landmarker** - Google's state-of-the-art pose detection
+- **WebAssembly (WASM)** - High-performance ML inference in the browser
+
+### Graphics & Visualization
+- **HTML5 Canvas** - Real-time overlay rendering
+- **Custom Chart Engine** - Lightweight velocity graphing
+
+### Performance Optimizations
+- Frame skipping for 60fps rendering
+- Downscaled detection canvas (640px max)
+- GPU acceleration support
+- Cached detection results
+
+---
+
+## How It Works
+
+### 1. Pose Detection
+MediaPipe extracts 33 body landmarks (joints) from each video frame with X, Y, Z coordinates.
+
+### 2. Center of Mass Calculation
+We calculate CoM using anthropometric segment weights:
+- Head: 8%
+- Trunk: 50%
+- Thighs: 20% (10% each)
+- Lower legs: 12% (6% each)
+- Upper arms: 6% (3% each)
+- Forearms: 4% (2% each)
+
+### 3. Optimal Balance Line
+The "Axis of Tension" connects your hands (pull center) to your feet (base of support). The optimal CoM position lies along this line at your current height.
+
+### 4. Stability Scoring
+- **Horizontal Gap**: Distance between actual and optimal CoM
+- **Threshold**: 5% of frame width for "aligned" status
+- **Session Average**: Percentage of aligned frames
+
+### 5. Smoothness Analysis
+- Tracks velocity variance over a 30-frame rolling window
+- Lower variance = smoother, more efficient movement
+- Scores from 0-100 (higher is better)
+
+---
+
+## Project Structure
+
+```
+RockClimbing/
+├── index.html              # Main single-view page
+├── compare.html            # Side-by-side comparison page
+├── mediaPipeOverlay.js     # Core pose detection & rendering
+├── compareOverlay.js       # Dual-video comparison logic
+├── dataAnalysis.js         # Metrics calculation & charting
+├── alignmentTracker.js     # Balance analysis algorithms
+├── ClimberAid_Logo.png     # Application logo
+└── Readme.md               # This file
+```
+
+---
+
+## Use Cases
+
+- **Training**: Identify inefficient movement patterns
+- **Coaching**: Provide objective feedback to students
+- **Self-Analysis**: Review your beta and technique
+- **Competition Prep**: Compare different approaches to the same route
+- **Progress Tracking**: Measure improvement over time
+
+---
+
+## Technical Details
+
+### MediaPipe Models
+- **Lite**: Fast, lower accuracy (~30ms/frame)
+- **Full**: Balanced performance (default, ~50ms/frame)
+- **Heavy**: Maximum accuracy (~80ms/frame)
+
+### Performance Targets
+- 30+ FPS rendering on modern hardware
+- Detection every 2nd frame (staggered in comparison mode)
+- UI updates throttled to 30Hz for smooth performance
+
+### Browser Requirements
+- WebGL support for GPU acceleration
+- ES6 module support
+- Canvas 2D rendering context
+- MediaDevices API (for webcam)
+
+---
+
+## Team
+
+- **Nathaniel Wu** - [LinkedIn](https://www.linkedin.com/in/nathaniel-wu-3755a22b2/)
+- **Andrew Washburn** - [LinkedIn](https://www.linkedin.com/in/andrew-washburn-4855a32b2/)
+- **Jacob Brayko** - [LinkedIn](https://www.linkedin.com/in/jacob-brayko-520ab53aa/)
+- **Zach Yarvis** - [LinkedIn](https://www.linkedin.com/in/zach-yarvis-81327b2b2/)
+
+---
+
+## License
+
+This project was created as part of a hackathon/educational project. Feel free to use and modify for learning purposes.
+
+---
+
+## Acknowledgments
+
+- **Google MediaPipe** - For the incredible pose detection technology
+- **Rock climbing community** - For inspiration and feedback
+- **Open source contributors** - For making browser-based ML possible
+
+---
+
+## Future Improvements
+
+- 3D pose analysis with depth estimation
+- Mobile app with offline processing
+- Historical progress tracking database
+- Route difficulty prediction ML model
+- Social features and community leaderboards
+- Integration with climbing gym management systems
+- AR overlay mode for live coaching
+- Wearable device integration
+
+---
+
+**Built with love for climbers, by climbers**
