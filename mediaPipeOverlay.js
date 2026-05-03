@@ -13,8 +13,8 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const canvasContext = canvas.getContext('2d');
 
-video.width = 640;
-video.height = 480;
+//video.width = 640;
+//video.height = 480;
 
 
 const inputCanvas = document.createElement('canvas');
@@ -41,6 +41,7 @@ const optimalHistory = [];
 const cogPath = [];
 const SMOOTHING_WINDOW = 5;
 const MAX_PATH_POINTS = 300;
+const MAX_DETECTION_WIDTH = 640; // Scale down for MediaPipe — it doesn't need full-res frames
 
 function getMidpoint(p1, p2) {
     return {
@@ -110,7 +111,7 @@ function calculateOptimalCOG(landmarks, currentCog) {
     let optimalX;
 
     // 3. Find where the current Y intersects the Tension Line
-    // Prevent divide by zero if hands and feet are exactly horizontal (e.g., severe heel hook)
+    // Prevent divide by zero if hands and feet are exactly horizontal  ex: heel hook)
     if (Math.abs(pullY - baseY) < 0.001) {
         optimalX = baseX;
     } else {
@@ -148,10 +149,15 @@ function setStatus(message) {
 function resizeCanvas() {
     const vw = video.videoWidth || 1280;
     const vh = video.videoHeight || 720;
-    inputCanvas.width = vw;
-    inputCanvas.height = vh;
+
+    // Overlay stays at full resolution for crisp visuals
     canvas.width = vw;
     canvas.height = vh;
+
+    // Detection canvas scaled down — MediaPipe doesn't need full-res
+    const scale = Math.min(1, MAX_DETECTION_WIDTH / vw);
+    inputCanvas.width = Math.round(vw * scale);
+    inputCanvas.height = Math.round(vh * scale);
 }
 
 function resizeVelocityChart() {
@@ -185,6 +191,7 @@ function resetLoop() {
 
 // --- DRAWING FUNCTIONS ---
 
+/* 
 function drawCogPath() {
     if (cogPath.length < 2) return;
     canvasContext.save();
@@ -197,21 +204,25 @@ function drawCogPath() {
     canvasContext.lineWidth = 2;
     canvasContext.stroke();
     canvasContext.restore();
-}
+} */
 
 function drawResults(result) {
     canvasContext.save();
     canvasContext.clearRect(0, 0, canvas.width, canvas.height);
-    canvasContext.drawImage(inputCanvas, 0, 0, canvas.width, canvas.height);
+    // Draw from the original video (full-res), not the scaled-down detection canvas
+    canvasContext.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const landmarks = result.landmarks?.[0];
     if (landmarks?.length) {
+        // Scale factor: sizes are authored for 720p; scale proportionally to actual resolution
+        const s = Math.max(canvas.width, canvas.height) / 720;
+
         // 1. Draw Skeleton
         drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
             color: 'rgba(103, 242, 196, 0.6)',
-            lineWidth: 2
+            lineWidth: 4 * s
         });
-        drawingUtils.drawLandmarks(landmarks, { color: '#f7fbff', radius: 1 });
+        drawingUtils.drawLandmarks(landmarks, { color: '#f7fbff', radius: 2 * s });
 
         // 2. Calculations
         const currentCog = calculateCOG(landmarks);
@@ -220,7 +231,7 @@ function drawResults(result) {
         // Update Path
         cogPath.push({ x: currentCog.x * canvas.width, y: currentCog.y * canvas.height });
         if (cogPath.length > MAX_PATH_POINTS) cogPath.shift();
-        drawCogPath();
+        // drawCogPath();
 
         // 3. Alignment Integration
         if (optimalData) {
@@ -252,26 +263,26 @@ function drawResults(result) {
             }
 
             // The Axis of Tension (Line connecting Hands to Feet)
-            canvasContext.setLineDash([5, 5]);
-            canvasContext.beginPath();
-            canvasContext.moveTo(optimalData.anchors.baseX * canvas.width, optimalData.anchors.baseY * canvas.height);
-            canvasContext.lineTo(optimalData.anchors.pullX * canvas.width, optimalData.anchors.pullY * canvas.height);
-            canvasContext.strokeStyle = 'rgba(0, 242, 255, 0.4)';
-            canvasContext.lineWidth = 2;
-            canvasContext.stroke();
-            canvasContext.setLineDash([]);
+            /* canvasContext.setLineDash([5 * s, 5 * s]);
+             canvasContext.beginPath();
+             canvasContext.moveTo(optimalData.anchors.baseX * canvas.width, optimalData.anchors.baseY * canvas.height);
+             canvasContext.lineTo(optimalData.anchors.pullX * canvas.width, optimalData.anchors.pullY * canvas.height);
+             canvasContext.strokeStyle = 'rgba(0, 242, 255, 0.4)';
+             canvasContext.lineWidth = 2 * s;
+             canvasContext.stroke();
+             canvasContext.setLineDash([]); LINE dash didn't look very good */
 
             // Effort Gap (Horizontal line between Current COG and the Tension Line)
             canvasContext.beginPath();
             canvasContext.moveTo(currentCog.x * canvas.width, currentCog.y * canvas.height);
             canvasContext.lineTo(optimalData.x * canvas.width, optimalData.y * canvas.height);
             canvasContext.strokeStyle = '#ff4d4d';
-            canvasContext.lineWidth = 3;
+            canvasContext.lineWidth = 3 * s;
             canvasContext.stroke();
 
             // Achievable Optimal Point on the Tension Line
             canvasContext.beginPath();
-            canvasContext.arc(optimalData.x * canvas.width, optimalData.y * canvas.height, 6, 0, Math.PI * 2);
+            canvasContext.arc(optimalData.x * canvas.width, optimalData.y * canvas.height, 6 * s, 0, Math.PI * 2);
             canvasContext.fillStyle = '#00f2ff';
             canvasContext.fill();
         } else {
@@ -284,28 +295,28 @@ function drawResults(result) {
         const cy = currentCog.y * canvas.height;
 
         canvasContext.beginPath();
-        canvasContext.arc(cx, cy, 12, 0, Math.PI * 2);
+        canvasContext.arc(cx, cy, 12 * s, 0, Math.PI * 2);
         canvasContext.strokeStyle = '#ffd166';
-        canvasContext.lineWidth = 3;
+        canvasContext.lineWidth = 3 * s;
         canvasContext.stroke();
 
         canvasContext.beginPath();
-        canvasContext.arc(cx, cy, 4, 0, Math.PI * 2);
+        canvasContext.arc(cx, cy, 4 * s, 0, Math.PI * 2);
         canvasContext.fillStyle = '#ffd166';
         canvasContext.fill();
 
         // Labels
         canvasContext.fillStyle = '#ffd166';
-        canvasContext.font = 'bold 12px Inter, sans-serif';
-        canvasContext.fillText('CURRENT', cx + 15, cy - 5);
+        canvasContext.font = `bold ${Math.round(14 * s)}px Inter, sans-serif`;
+        canvasContext.fillText('CURRENT', cx + 16 * s, cy - 6 * s);
 
         if (optimalData) {
             canvasContext.fillStyle = '#00f2ff';
-            canvasContext.fillText('Optimal COM', (optimalData.x * canvas.width) + 15, (optimalData.y * canvas.height) + 15);
+            canvasContext.fillText('Optimal COM', (optimalData.x * canvas.width) + 16 * s, (optimalData.y * canvas.height) + 16 * s);
         }
 
         // --- CALCULATE DATA ANALYTICS ---
-        analyzeSmoothness(cogHistory, canvasContext, canvas.width, canvas.height);
+        analyzeSmoothness(cogHistory, canvasContext, canvas.width, canvas.height, s);
 
         // Velocity graph of center of mass movement
         if (velocityChartCtx) {
@@ -330,7 +341,7 @@ async function loadLandmarker() {
     setStatus('Loading MediaPipe model...');
     const vision = await FilesetResolver.forVisionTasks(WASM_URL);
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task' },
+        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task' },
         runningMode: 'VIDEO',
         numPoses: 1,
         minPoseDetectionConfidence: 0.5,
