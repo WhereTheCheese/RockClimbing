@@ -233,6 +233,27 @@
             text-align: right;
         }
 
+        #speed-control {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        #speed-control:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+        #speed-control:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .hint {
             color: var(--muted);
             font-size: 0.85rem;
@@ -359,6 +380,15 @@
                 <button id="play-pause-btn" disabled>Play</button>
                 <input type="range" id="seek-bar" value="0" min="0" step="0.01" disabled>
                 <span id="time-display">0:00 / 0:00</span>
+                <select id="speed-control" disabled>
+                    <option value="0.25">0.25x</option>
+                    <option value="0.5">0.5x</option>
+                    <option value="0.75">0.75x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2">2x</option>
+                </select>
             </div>
 
             <div class="hint">Upload a video of your project or use the webcam to overlay skeletal tracking.</div>

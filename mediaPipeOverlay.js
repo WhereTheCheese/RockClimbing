@@ -29,6 +29,7 @@ const velocityChartCtx = velocityChart ? velocityChart.getContext('2d') : null;
 const playPauseBtn = document.getElementById('play-pause-btn');
 const seekBar = document.getElementById('seek-bar');
 const timeDisplay = document.getElementById('time-display');
+const speedControl = document.getElementById('speed-control');
 
 // Analytics UI elements (cached so we don't query the DOM every frame)
 const stabilityCurrent = document.getElementById('data-stability');
@@ -418,6 +419,7 @@ videoFileInput.addEventListener('change', async () => {
     video.onloadedmetadata = () => {
         playPauseBtn.disabled = false;
         seekBar.disabled = false;
+        speedControl.disabled = false;
         playPauseBtn.textContent = 'Pause';
         resizeCanvas();
         video.play();
@@ -459,6 +461,10 @@ seekBar.addEventListener('input', () => {
     cogHistory.length = 0;
     optimalHistory.length = 0;
     cogPath.length = 0;
+});
+
+speedControl.addEventListener('change', () => {
+    video.playbackRate = parseFloat(speedControl.value);
 });
 
 // Initialization
