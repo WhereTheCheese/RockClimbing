@@ -16,6 +16,7 @@ const statusText = document.getElementById('status-text');
 let poseLandmarker;
 let animationFrameId = null;
 let lastVideoTime = -1;
+let currentObjectUrl = null;
 
 // --- COG TRACKING CONFIGURATION ---
 const cogHistory = [];
@@ -257,9 +258,11 @@ videoFileInput.addEventListener('change', async () => {
     stopActiveStream();
     resetLoop();
 
-    const objectUrl = URL.createObjectURL(file);
-    video.srcObject = null;
-    video.src = objectUrl;
+    if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+    }
+    currentObjectUrl = URL.createObjectURL(file);
+    video.src = currentObjectUrl;
     video.onloadedmetadata = async () => {
         resizeCanvas();
         await video.play();
