@@ -4,10 +4,59 @@ const ANALYTICS_WINDOW = 30; // Look at the last ~30 frames to calculate smoothn
 let currentSmoothnessScore = 100; // Start at 100
 let currentVelocity = 0;
 
+// New Alignment Tracking Variables
+let alignedFrames = 0;
+let totalFrames = 0;
+const HORIZONTAL_THRESHOLD = 0.05; // 5% horizontal tolerance
+
 export function resetAnalytics() {
     velocityHistory.length = 0;
     currentSmoothnessScore = 100;
     currentVelocity = 0;
+    // Reset alignment
+    alignedFrames = 0;
+    totalFrames = 0;
+}
+
+// New Function: Calculate and return the alignment percentage
+export function calculateAlignmentPercentage(currentCog, optimalData) {
+    if (!currentCog || !optimalData) return 0;
+
+    totalFrames++;
+    const diff = Math.abs(currentCog.x - optimalData.x); // Compare X coordinates
+
+    if (diff <= HORIZONTAL_THRESHOLD) {
+        alignedFrames++;
+    }
+
+    return (alignedFrames / totalFrames) * 100;
+}
+
+// New Function: Calculate detailed metrics (instant accuracy vs session stability)
+export function calculateDetailedMetrics(currentCog, optimalData) {
+    if (!currentCog || !optimalData) {
+        return { instant: 0, session: 0 };
+    }
+
+    totalFrames++;
+    
+    // 1. Calculate horizontal offset (Instant Accuracy)
+    const horizontalGap = Math.abs(currentCog.x - optimalData.x);
+    
+    // 2. Score this specific frame (0-100)
+    // If gap is 0, score is 100. If gap is 0.1 (10%), score is 0.
+    const instantScore = Math.max(0, Math.min(100, (1 - (horizontalGap / 0.1)) * 100));
+
+    // 3. Update the running average for Stability
+    if (horizontalGap <= HORIZONTAL_THRESHOLD) {
+        alignedFrames++;
+    }
+    const sessionStability = ((alignedFrames / totalFrames) * 100).toFixed(1);
+
+    return {
+        instant: instantScore.toFixed(1),
+        session: sessionStability
+    };
 }
 
 export function getCurrentVelocity() {

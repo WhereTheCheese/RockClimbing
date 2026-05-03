@@ -4,7 +4,8 @@ import {
     analyzeSmoothness,
     drawVelocityChart,
     getCurrentVelocity,
-    getCurrentSmoothnessScore
+    getCurrentSmoothnessScore,
+    calculateDetailedMetrics
 } from './dataAnalysis.js';
 
 const video = document.getElementById('video');
@@ -22,7 +23,6 @@ const statusText = document.getElementById('status-text');
 // Velocity graph elements
 const velocityChart = document.getElementById('velocity-chart');
 const velocityCurrent = document.getElementById('data-velocity');
-const smoothnessCurrent = document.getElementById('data-stability');
 const velocityChartCtx = velocityChart ? velocityChart.getContext('2d') : null;
 
 // Video controls
@@ -30,10 +30,20 @@ const playPauseBtn = document.getElementById('play-pause-btn');
 const seekBar = document.getElementById('seek-bar');
 const timeDisplay = document.getElementById('time-display');
 
+// Analytics UI elements (cached so we don't query the DOM every frame)
+const stabilityCurrent = document.getElementById('data-stability');
+const accuracyElement = document.getElementById('data-cog-accuracy');
+
 let poseLandmarker;
 let animationFrameId = null;
 let lastVideoTime = -1;
 let currentObjectUrl = null;
+
+// --- PERFORMANCE TUNING ---
+let frameCount = 0;
+let lastDetectionResult = null;          // Cache last result so we can draw on skipped frames
+const DETECT_EVERY_N_FRAMES = 2;         // Run MediaPipe every 2nd frame (~30 detections/sec at 60fps)
+const UI_UPDATE_EVERY_N_FRAMES = 2;      // Throttle DOM text writes to ~30Hz (chart still draws every frame)
 
 // --- CONFIGURATION & TRACKING HISTORY ---
 const cogHistory = [];
@@ -233,8 +243,25 @@ function drawResults(result) {
         if (cogPath.length > MAX_PATH_POINTS) cogPath.shift();
         // drawCogPath();
 
-        // 3. Draw Optimal Elements
+        // 3. Alignment Integration
         if (optimalData) {
+            // Get both instant accuracy and session stability metrics
+            const metrics = calculateDetailedMetrics(currentCog, optimalData);
+
+            // Update the 'CoM Stability' card (Session Average)
+            if (stabilityCurrent) {
+                stabilityCurrent.textContent = `${metrics.session}%`;
+                stabilityCurrent.style.color = parseFloat(metrics.session) > 70 ? '#67f2c4' : '#ffd166';
+                stabilityCurrent.classList.remove('placeholder');
+            }
+
+            // Update the 'COG Accuracy' card (Real-time Snapshot)
+            if (accuracyElement) {
+                accuracyElement.textContent = `${metrics.instant}%`;
+                accuracyElement.style.color = parseFloat(metrics.instant) > 80 ? '#4ade80' : '#facc15';
+                accuracyElement.classList.remove('placeholder');
+            }
+
             // The Axis of Tension (Line connecting Hands to Feet)
             /* canvasContext.setLineDash([5 * s, 5 * s]);
              canvasContext.beginPath();
@@ -288,7 +315,7 @@ function drawResults(result) {
         // --- CALCULATE DATA ANALYTICS ---
         analyzeSmoothness(cogHistory, canvasContext, canvas.width, canvas.height, s);
 
-        // Velocity graph of center of mass movement
+        // Velocity chart redraws every frame (it's just canvas lines — cheap)
         if (velocityChartCtx) {
             drawVelocityChart(
                 velocityChartCtx,
@@ -296,11 +323,12 @@ function drawResults(result) {
                 velocityChart.height / (window.devicePixelRatio || 1)
             );
         }
-        if (velocityCurrent) {
-            velocityCurrent.textContent = `${getCurrentVelocity().toFixed(1)} px/frame`;
-        }
-        if (smoothnessCurrent) {
-            smoothnessCurrent.textContent = getCurrentSmoothnessScore().toFixed(0);
+
+        // DOM text writes throttled — browsers can struggle with layout at 60Hz
+        if (frameCount % UI_UPDATE_EVERY_N_FRAMES === 0) {
+            if (velocityCurrent) {
+                velocityCurrent.textContent = `${getCurrentVelocity().toFixed(1)} px/frame`;
+            }
         }
     }
 
@@ -314,7 +342,10 @@ async function loadLandmarker() {
     setStatus('Loading MediaPipe model...');
     const vision = await FilesetResolver.forVisionTasks(WASM_URL);
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task' },
+        baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+            delegate: 'GPU'  // Offload inference to GPU — major speedup on most devices
+        },
         runningMode: 'VIDEO',
         numPoses: 1,
         minPoseDetectionConfidence: 0.5,
@@ -322,6 +353,16 @@ async function loadLandmarker() {
         minTrackingConfidence: 0.5
     });
     setStatus('Ready.');
+
+    // Pre-warm: run one blank inference so GPU shaders compile NOW (during loading)
+    // instead of stalling on the very first real video frame
+    try {
+        const warmupCanvas = document.createElement('canvas');
+        warmupCanvas.width = MAX_DETECTION_WIDTH;
+        warmupCanvas.height = Math.round(MAX_DETECTION_WIDTH * 9 / 16);
+        poseLandmarker.detectForVideo(warmupCanvas, performance.now());
+    } catch (_) { /* warmup failure is harmless */ }
+
     return poseLandmarker;
 }
 
@@ -331,12 +372,21 @@ function trackFrame() {
         return;
     }
 
+    frameCount++;
+
     if (video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
-        inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
-        inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
-        const result = poseLandmarker.detectForVideo(inputCanvas, performance.now());
-        drawResults(result);
+
+        // Only run heavy ML inference every N frames; reuse cached result otherwise
+        if (frameCount % DETECT_EVERY_N_FRAMES === 0) {
+            inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
+            inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
+            lastDetectionResult = poseLandmarker.detectForVideo(inputCanvas, performance.now());
+        }
+
+        if (lastDetectionResult) {
+            drawResults(lastDetectionResult);
+        }
     }
     animationFrameId = requestAnimationFrame(trackFrame);
 }
