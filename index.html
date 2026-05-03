@@ -344,6 +344,40 @@
             color: #4a505e;
         }
 
+        .metrics-summary {
+            background: var(--bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 24px;
+        }
+
+        .metrics-summary h3 {
+            margin: 0 0 16px 0;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-explanation {
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: var(--muted);
+        }
+
+        .metric-explanation:last-child {
+            margin-bottom: 0;
+        }
+
+        .metric-explanation strong {
+            color: var(--text);
+            font-weight: 600;
+        }
+
         .chart-box {
             background: var(--bg);
             border: 1px solid var(--panel-border);
@@ -759,6 +793,23 @@
             </div>
             <div class="chart-box" id="data-chart-container">
                 <canvas id="velocity-chart"></canvas>
+            </div>
+
+            <!-- Metrics Explanation Summary -->
+            <div class="metrics-summary">
+                <h3>Understanding Your Metrics</h3>
+                <div class="metric-explanation">
+                    <strong>Average Stability:</strong> Percentage of frames where your center of mass stays within the optimal balance zone throughout the entire climb.
+                </div>
+                <div class="metric-explanation">
+                    <strong>Frame Stability:</strong> Real-time accuracy score showing how close your current body position is to the ideal balance point.
+                </div>
+                <div class="metric-explanation">
+                    <strong>Movement Velocity:</strong> Speed of your center of mass movement between frames. Lower variance indicates smoother, more efficient climbing technique.
+                </div>
+                <div class="metric-explanation">
+                    <strong>Velocity Graph:</strong> Visual representation of your movement speed over time. Consistent lines indicate smooth flow, while spikes show jerky or inefficient movements.
+                </div>
             </div>
         </aside>
     </main>

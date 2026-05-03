@@ -416,6 +416,46 @@
             color: var(--text);
         }
 
+        /* Metrics Info Section */
+        .metrics-info {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 0 24px 24px;
+        }
+
+        .metrics-info-card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .metrics-info-card h3 {
+            margin: 0 0 16px 0;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-explanation {
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: var(--muted);
+        }
+
+        .metric-explanation:last-child {
+            margin-bottom: 0;
+        }
+
+        .metric-explanation strong {
+            color: var(--text);
+            font-weight: 600;
+        }
+
         /* ── Sync controls ── */
         .sync-bar {
             display: flex;
@@ -786,6 +826,22 @@
         </section>
 
     </main>
+
+    <!-- Metrics Explanation -->
+    <section class="metrics-info">
+        <div class="metrics-info-card">
+            <h3>Understanding Your Metrics</h3>
+            <div class="metric-explanation">
+                <strong>Average Stability:</strong> Session-wide balance consistency. Percentage of frames where your center of mass stays within the optimal balance zone throughout the entire climb.
+            </div>
+            <div class="metric-explanation">
+                <strong>Frame Stability:</strong> Current position accuracy. Real-time score showing how close your body position is to the ideal balance point.
+            </div>
+            <div class="metric-explanation">
+                <strong>Movement Velocity:</strong> Speed of body movement. Measures how fast your center of mass moves between frames. Lower variance indicates smoother technique.
+            </div>
+        </div>
+    </section>
 
     <!-- Comparison Summary (inline below videos) -->
     <section class="compare-summary" id="compare-summary-section">
