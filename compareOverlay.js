@@ -3,7 +3,11 @@ import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdel
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
+const MODEL_URLS = {
+    lite: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+    full: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+    heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task',
+};
 const MAX_DETECTION_WIDTH = 640;
 const MAX_PATH_POINTS = 300;
 
@@ -29,8 +33,10 @@ const inputCtxA = inputCanvasA.getContext('2d', { willReadFrequently: true });
 const inputCanvasB = document.createElement('canvas');
 const inputCtxB = inputCanvasB.getContext('2d', { willReadFrequently: true });
 
-// ─── DOM ──────────────────────────────────────────────────────────────────────
+// ─── DOM ────────────────────────────────────────────────────────────────────
 const statusText = document.getElementById('status-text');
+const modelSelect = document.getElementById('model-select');
+const delegateSelect = document.getElementById('delegate-select');
 
 // ─── PER-PANEL ANALYTICS STATE ────────────────────────────────────────────────
 function createAnalyticsState() {
@@ -109,13 +115,6 @@ function fmtTime(sec) {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-function parseTime(str) {
-    if (!str || !str.trim()) return null;
-    const parts = str.trim().split(':');
-    if (parts.length === 2) return parseInt(parts[0]) * 60 + parseFloat(parts[1]);
-    if (parts.length === 1) return parseFloat(parts[0]);
-    return null;
-}
 
 // Effective playback range for a panel (respects trim)
 function getRange(panel) {
@@ -464,18 +463,32 @@ function trackFrame() {
 }
 
 // ─── MODEL LOADING ────────────────────────────────────────────────────────────
-async function loadLandmarker() {
-    setStatus('Loading MediaPipe model...');
-    const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+let _visionInstance = null;
+
+async function loadLandmarker(modelKey, delegate) {
+    const modelUrl = MODEL_URLS[modelKey] || MODEL_URLS.full;
+    setStatus(`Loading ${modelKey} model (${delegate})...`);
+
+    // Close previous instance if reloading
+    if (poseLandmarker) {
+        poseLandmarker.close();
+        poseLandmarker = null;
+    }
+
+    if (!_visionInstance) {
+        _visionInstance = await FilesetResolver.forVisionTasks(WASM_URL);
+    }
+
+    poseLandmarker = await PoseLandmarker.createFromOptions(_visionInstance, {
+        baseOptions: { modelAssetPath: modelUrl, delegate: delegate },
         runningMode: 'VIDEO',
         numPoses: 1,
-        minPoseDetectionConfidence: 0.3,  // Lower threshold for better detection
-        minPosePresenceConfidence: 0.3,   // Lower threshold for better detection
-        minTrackingConfidence: 0.3,       // Lower threshold for better tracking
+        minPoseDetectionConfidence: 0.3,
+        minPosePresenceConfidence: 0.3,
+        minTrackingConfidence: 0.3,
     });
 
+    // Pre-warm GPU shaders
     try {
         const w = document.createElement('canvas');
         w.width = MAX_DETECTION_WIDTH;
@@ -483,7 +496,7 @@ async function loadLandmarker() {
         poseLandmarker.detectForVideo(w, performance.now());
     } catch (_) { }
 
-    setStatus('Ready — upload two videos to compare');
+    setStatus(`Ready — ${modelKey} (${delegate})`);
 }
 
 function setStatus(msg) {
@@ -582,12 +595,6 @@ panels.forEach(panel => {
         resetAnalyticsState(panel.analytics);
         hideComparisonSummary();
 
-        // Clear trim inputs
-        const trimStartEl = document.getElementById(`trim-start-${panel.id}`);
-        const trimEndEl = document.getElementById(`trim-end-${panel.id}`);
-        if (trimStartEl) trimStartEl.value = '';
-        if (trimEndEl) trimEndEl.value = '';
-
         panel.video.onloadedmetadata = () => {
             resizePanel(panel);
             panel.video.play();
@@ -636,38 +643,92 @@ panels.forEach(panel => {
         });
     }
 
-    // --- Trim Set/Clear ---
-    const trimSetBtn = document.getElementById(`trim-set-${panel.id}`);
-    const trimClearBtn = document.getElementById(`trim-clear-${panel.id}`);
-    const trimStartInput = document.getElementById(`trim-start-${panel.id}`);
-    const trimEndInput = document.getElementById(`trim-end-${panel.id}`);
+    // --- Trim drag handles ---
+    const trimTrack = document.getElementById(`trim-track-${panel.id}`);
+    const trimFill = document.getElementById(`trim-fill-${panel.id}`);
+    const trimHandleStart = document.getElementById(`trim-handle-start-${panel.id}`);
+    const trimHandleEnd = document.getElementById(`trim-handle-end-${panel.id}`);
+    const trimTimeStart = document.getElementById(`trim-time-start-${panel.id}`);
+    const trimTimeEnd = document.getElementById(`trim-time-end-${panel.id}`);
+    const trimResetBtn = document.getElementById(`trim-reset-${panel.id}`);
 
-    if (trimSetBtn) {
-        trimSetBtn.addEventListener('click', () => {
-            const s = parseTime(trimStartInput?.value);
-            const e = parseTime(trimEndInput?.value);
-            panel.trimStart = (s !== null && s >= 0) ? s : null;
-            panel.trimEnd = (e !== null && e > 0) ? Math.min(e, panel.video.duration || Infinity) : null;
+    // Update trim slider visual positions
+    function updateTrimVisuals() {
+        if (!trimTrack || !trimFill || !trimHandleStart || !trimHandleEnd) return;
+        const dur = panel.video.duration || 1;
+        const startPct = ((panel.trimStart ?? 0) / dur) * 100;
+        const endPct = ((panel.trimEnd ?? dur) / dur) * 100;
+        trimHandleStart.style.left = `${startPct}%`;
+        trimHandleEnd.style.left = `${endPct}%`;
+        trimFill.style.left = `${startPct}%`;
+        trimFill.style.width = `${endPct - startPct}%`;
+        if (trimTimeStart) trimTimeStart.textContent = fmtTime(panel.trimStart ?? 0);
+        if (trimTimeEnd) trimTimeEnd.textContent = fmtTime(panel.trimEnd ?? dur);
+    }
 
-            // Clamp current time to new range and reset analytics
-            const range = getRange(panel);
-            if (panel.video.currentTime < range.start || panel.video.currentTime > range.end) {
-                panel.video.currentTime = range.start;
+    // Drag logic
+    function initTrimDrag(handleEl, which) {
+        if (!handleEl || !trimTrack) return;
+
+        function onPointerDown(e) {
+            e.preventDefault();
+            handleEl.classList.add('dragging');
+
+            const trackRect = trimTrack.getBoundingClientRect();
+            const dur = panel.video.duration || 1;
+
+            function onPointerMove(e2) {
+                const x = (e2.clientX - trackRect.left) / trackRect.width;
+                const t = Math.max(0, Math.min(1, x)) * dur;
+
+                if (which === 'start') {
+                    panel.trimStart = Math.min(t, (panel.trimEnd ?? dur) - 0.1);
+                } else {
+                    panel.trimEnd = Math.max(t, (panel.trimStart ?? 0) + 0.1);
+                }
+                updateTrimVisuals();
             }
+
+            function onPointerUp() {
+                handleEl.classList.remove('dragging');
+                document.removeEventListener('pointermove', onPointerMove);
+                document.removeEventListener('pointerup', onPointerUp);
+                // Reset analytics after trim change
+                panel.ended = false;
+                resetAnalyticsState(panel.analytics);
+                panel.cogHistory.length = 0;
+                panel.prevSmoothedCOG = null;
+                panel.prevSmoothedOptimal = null;
+                // Clamp current time if outside range
+                const range = getRange(panel);
+                if (panel.video.currentTime < range.start) panel.video.currentTime = range.start;
+                if (panel.video.currentTime > range.end) panel.video.currentTime = range.end;
+            }
+
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+        }
+
+        handleEl.addEventListener('pointerdown', onPointerDown);
+    }
+
+    initTrimDrag(trimHandleStart, 'start');
+    initTrimDrag(trimHandleEnd, 'end');
+
+    // Update visuals when video loads
+    panel.video.addEventListener('loadedmetadata', () => updateTrimVisuals());
+
+    // Reset button
+    if (trimResetBtn) {
+        trimResetBtn.addEventListener('click', () => {
+            panel.trimStart = null;
+            panel.trimEnd = null;
+            updateTrimVisuals();
             panel.ended = false;
             resetAnalyticsState(panel.analytics);
             panel.cogHistory.length = 0;
             panel.prevSmoothedCOG = null;
             panel.prevSmoothedOptimal = null;
-        });
-    }
-
-    if (trimClearBtn) {
-        trimClearBtn.addEventListener('click', () => {
-            panel.trimStart = null;
-            panel.trimEnd = null;
-            if (trimStartInput) trimStartInput.value = '';
-            if (trimEndInput) trimEndInput.value = '';
         });
     }
 
@@ -692,6 +753,24 @@ window._hideComparisonSummary = hideComparisonSummary;
 window._showComparisonSummary = showComparisonSummary;
 window._comparePanels = panels;
 
-// ─── BOOT ─────────────────────────────────────────────────────────────────────
-await loadLandmarker();
+// ─── MODEL / DELEGATE SWITCHING ────────────────────────────────────────────
+async function reloadModel() {
+    const modelKey = modelSelect?.value || 'full';
+    const delegate = delegateSelect?.value || 'GPU';
+    if (modelSelect) modelSelect.disabled = true;
+    if (delegateSelect) delegateSelect.disabled = true;
+    try {
+        await loadLandmarker(modelKey, delegate);
+    } catch (e) {
+        setStatus(`Error loading ${modelKey} (${delegate}) — ${e.message}`);
+    }
+    if (modelSelect) modelSelect.disabled = false;
+    if (delegateSelect) delegateSelect.disabled = false;
+}
+
+if (modelSelect) modelSelect.addEventListener('change', reloadModel);
+if (delegateSelect) delegateSelect.addEventListener('change', reloadModel);
+
+// ─── BOOT ───────────────────────────────────────────────────────────────────────
+await loadLandmarker(modelSelect?.value || 'full', delegateSelect?.value || 'CPU');
 trackFrame();
