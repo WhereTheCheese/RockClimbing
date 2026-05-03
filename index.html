@@ -254,6 +254,28 @@
             cursor: not-allowed;
         }
 
+        .settings-select {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: 'Open Sans', sans-serif;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .settings-select:hover {
+            border-color: var(--accent);
+        }
+
+        .settings-select:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .hint {
             color: var(--muted);
             font-size: 0.85rem;
@@ -358,7 +380,20 @@
         </div>
         <div class="controls">
             <span class="status" id="status-text">Loading model...</span>
-            <a href="./compare.html" style="background:var(--panel);border:1px solid var(--panel-border);color:var(--text);border-radius:6px;padding:10px 18px;font-family:'Open Sans',sans-serif;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:all 0.2s;">Compare Runs</a>
+
+            <select id="model-select" class="settings-select" title="Pose model">
+                <option value="lite">Lite (fast)</option>
+                <option value="full" selected>Full (balanced)</option>
+                <option value="heavy">Heavy (accurate)</option>
+            </select>
+            <select id="delegate-select" class="settings-select" title="Compute backend">
+                <option value="GPU">GPU</option>
+                <option value="CPU" selected>CPU</option>
+            </select>
+
+            <a href="./compare.html"
+                style="background:var(--panel);border:1px solid var(--panel-border);color:var(--text);border-radius:6px;padding:10px 18px;font-family:'Open Sans',sans-serif;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:all 0.2s;">Compare
+                Runs</a>
             <button id="webcam-button" class="primary" type="button">
                 Start Live Camera
             </button>

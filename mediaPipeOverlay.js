@@ -35,6 +35,10 @@ const speedControl = document.getElementById('speed-control');
 const stabilityCurrent = document.getElementById('data-stability');
 const accuracyElement = document.getElementById('data-cog-accuracy');
 
+// Model settings controls
+const modelSelect = document.getElementById('model-select');
+const delegateSelect = document.getElementById('delegate-select');
+
 let poseLandmarker;
 let animationFrameId = null;
 let lastVideoTime = -1;
@@ -338,14 +342,32 @@ function drawResults(result) {
 
 // --- CORE ENGINE ---
 
-async function loadLandmarker() {
-    if (poseLandmarker) return poseLandmarker;
-    setStatus('Loading MediaPipe model...');
-    const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+const MODEL_URLS = {
+    lite: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+    full: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+    heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task',
+};
+
+let _visionInstance = null; // cache the WASM fileset so reloads don't re-download it
+
+async function loadLandmarker(modelKey, delegate) {
+    const modelUrl = MODEL_URLS[modelKey] || MODEL_URLS.full;
+    setStatus(`Loading ${modelKey} model (${delegate})...`);
+
+    // Close previous instance if reloading
+    if (poseLandmarker) {
+        poseLandmarker.close();
+        poseLandmarker = null;
+    }
+
+    if (!_visionInstance) {
+        _visionInstance = await FilesetResolver.forVisionTasks(WASM_URL);
+    }
+
+    poseLandmarker = await PoseLandmarker.createFromOptions(_visionInstance, {
         baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
-            delegate: 'GPU'  // Offload inference to GPU — major speedup on most devices
+            modelAssetPath: modelUrl,
+            delegate: delegate
         },
         runningMode: 'VIDEO',
         numPoses: 1,
@@ -353,10 +375,10 @@ async function loadLandmarker() {
         minPosePresenceConfidence: 0.5,
         minTrackingConfidence: 0.5
     });
-    setStatus('Ready.');
 
-    // Pre-warm: run one blank inference so GPU shaders compile NOW (during loading)
-    // instead of stalling on the very first real video frame
+    setStatus(`Ready — ${modelKey} (${delegate})`);
+
+    // Pre-warm: compile GPU shaders during loading, not on first frame
     try {
         const warmupCanvas = document.createElement('canvas');
         warmupCanvas.width = MAX_DETECTION_WIDTH;
@@ -467,10 +489,28 @@ speedControl.addEventListener('change', () => {
     video.playbackRate = parseFloat(speedControl.value);
 });
 
+// --- MODEL / DELEGATE SWITCHING ---
+async function reloadModel() {
+    const modelKey = modelSelect.value;
+    const delegate = delegateSelect.value;
+    // Disable selects during load to prevent double-clicks
+    modelSelect.disabled = true;
+    delegateSelect.disabled = true;
+    try {
+        await loadLandmarker(modelKey, delegate);
+    } catch (e) {
+        setStatus(`Error loading ${modelKey} (${delegate}) — ${e.message}`);
+    }
+    modelSelect.disabled = false;
+    delegateSelect.disabled = false;
+}
+
+modelSelect.addEventListener('change', reloadModel);
+delegateSelect.addEventListener('change', reloadModel);
+
 // Initialization
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
-await loadLandmarker();
+await loadLandmarker(modelSelect.value, delegateSelect.value);
 video.addEventListener('loadedmetadata', resizeCanvas);
 window.addEventListener('resize', resizeVelocityChart);
 resizeVelocityChart();
