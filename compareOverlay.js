@@ -244,7 +244,6 @@ function drawPanel(panel) {
         stabilityEl, accuracyEl, velocityEl, lastResult, analytics } = panel;
     if (!lastResult) return;
 
-
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
