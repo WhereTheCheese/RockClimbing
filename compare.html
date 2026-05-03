@@ -9,26 +9,30 @@
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&family=Open+Sans:wght@400;600&display=swap');
 
         :root {
-            --bg:           #181a1f;
-            --panel:        #22252b;
+            --bg: #181a1f;
+            --panel: #22252b;
             --panel-border: #363a45;
-            --text:         #f8f9fa;
-            --muted:        #a0aab2;
-            --accent:       #ff6b35;
+            --text: #f8f9fa;
+            --muted: #a0aab2;
+            --accent: #ff6b35;
             --accent-hover: #e85a28;
-            --success:      #20c997;
-            --cyan:         #00f2ff;
-            --gold:         #ffd166;
+            --success: #20c997;
+            --cyan: #00f2ff;
+            --gold: #ffd166;
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
         body {
             font-family: 'Open Sans', system-ui, sans-serif;
             background: var(--bg);
             background-image:
-                radial-gradient(circle at top right,  rgba(255,107,53,0.04), transparent 40%),
-                radial-gradient(circle at bottom left, rgba(32,201,151,0.03), transparent 40%);
+                radial-gradient(circle at top right, rgba(255, 107, 53, 0.04), transparent 40%),
+                radial-gradient(circle at bottom left, rgba(32, 201, 151, 0.03), transparent 40%);
             color: var(--text);
             min-height: 100vh;
         }
@@ -45,7 +49,11 @@
             gap: 12px;
         }
 
-        .brand { display: flex; align-items: baseline; gap: 10px; }
+        .brand {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
 
         h1 {
             font-family: 'Montserrat', sans-serif;
@@ -54,7 +62,10 @@
             text-transform: uppercase;
             letter-spacing: -0.02em;
         }
-        h1 span { color: var(--accent); }
+
+        h1 span {
+            color: var(--accent);
+        }
 
         .page-tag {
             font-size: 0.78rem;
@@ -62,10 +73,10 @@
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: var(--muted);
-            background: rgba(255,107,53,0.12);
+            background: rgba(255, 107, 53, 0.12);
             padding: 3px 10px;
             border-radius: 999px;
-            border: 1px solid rgba(255,107,53,0.25);
+            border: 1px solid rgba(255, 107, 53, 0.25);
         }
 
         .nav-link {
@@ -79,10 +90,14 @@
             border-radius: 6px;
             transition: all 0.2s;
         }
-        .nav-link:hover { border-color: var(--accent); color: var(--text); }
+
+        .nav-link:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
 
         .status-badge {
-            background: rgba(32,201,151,0.1);
+            background: rgba(32, 201, 151, 0.1);
             color: var(--success);
             padding: 5px 12px;
             border-radius: 4px;
@@ -126,8 +141,18 @@
             padding: 4px 14px;
             border-radius: 6px;
         }
-        .run-tag.a { background: rgba(103,242,196,0.15); color: #67f2c4; border: 1px solid rgba(103,242,196,0.3); }
-        .run-tag.b { background: rgba(255,107,53,0.15);  color: var(--accent); border: 1px solid rgba(255,107,53,0.3); }
+
+        .run-tag.a {
+            background: rgba(103, 242, 196, 0.15);
+            color: #67f2c4;
+            border: 1px solid rgba(103, 242, 196, 0.3);
+        }
+
+        .run-tag.b {
+            background: rgba(255, 107, 53, 0.15);
+            color: var(--accent);
+            border: 1px solid rgba(255, 107, 53, 0.3);
+        }
 
         .file-label {
             font-size: 0.8rem;
@@ -153,8 +178,15 @@
             gap: 6px;
             transition: all 0.2s;
         }
-        .upload-btn:hover { border-color: var(--accent); background: rgba(255,107,53,0.1); }
-        .upload-btn input[type="file"] { display: none; }
+
+        .upload-btn:hover {
+            border-color: var(--accent);
+            background: rgba(255, 107, 53, 0.1);
+        }
+
+        .upload-btn input[type="file"] {
+            display: none;
+        }
 
         /* ── Stage ── */
         .stage {
@@ -165,7 +197,7 @@
             background: #0a0b0e;
             border-radius: 8px;
             overflow: hidden;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
         }
 
         .stage video,
@@ -176,7 +208,10 @@
             height: 100%;
             object-fit: contain;
         }
-        .stage canvas { pointer-events: none; }
+
+        .stage canvas {
+            pointer-events: none;
+        }
 
         .stage-hint {
             position: absolute;
@@ -190,7 +225,11 @@
             font-size: 0.9rem;
             pointer-events: none;
         }
-        .stage-hint .icon { font-size: 2.5rem; opacity: 0.4; }
+
+        .stage-hint .icon {
+            font-size: 2.5rem;
+            opacity: 0.4;
+        }
 
         /* ── Stats row ── */
         .stats-row {
@@ -221,7 +260,10 @@
             font-weight: 600;
             color: var(--text);
         }
-        .stat-value.dim { color: #4a505e; }
+
+        .stat-value.dim {
+            color: #4a505e;
+        }
 
         /* ── Sync controls ── */
         .sync-bar {
@@ -246,14 +288,21 @@
             cursor: pointer;
             transition: background 0.2s;
         }
-        .sync-btn:hover { background: var(--accent-hover); }
+
+        .sync-btn:hover {
+            background: var(--accent-hover);
+        }
 
         .sync-btn.secondary {
             background: var(--panel);
             border: 1px solid var(--panel-border);
             color: var(--text);
         }
-        .sync-btn.secondary:hover { border-color: var(--accent); background: rgba(255,107,53,0.1); }
+
+        .sync-btn.secondary:hover {
+            border-color: var(--accent);
+            background: rgba(255, 107, 53, 0.1);
+        }
 
         .sync-label {
             font-size: 0.85rem;
@@ -262,8 +311,155 @@
 
         /* ── Responsive ── */
         @media (max-width: 900px) {
-            .compare-grid { grid-template-columns: 1fr; }
-            .stage { height: 50vh; }
+            .compare-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stage {
+                height: 50vh;
+            }
+        }
+
+        /* ── Comparison Summary (inline below videos) ── */
+        .compare-summary {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 0 24px 32px;
+            display: none;
+        }
+
+        .compare-summary.visible {
+            display: block;
+        }
+
+        .summary-card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 28px 24px 20px;
+            animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .summary-card .cmp-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .summary-card .cmp-header h2 {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.4rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .summary-card .cmp-header h2 span {
+            color: var(--accent);
+        }
+
+        .summary-card .cmp-header p {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-top: 4px;
+        }
+
+        .cmp-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 18px;
+        }
+
+        .cmp-table th,
+        .cmp-table td {
+            padding: 10px 14px;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .cmp-table th {
+            color: var(--muted);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        .cmp-table td {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 700;
+            font-size: 1.15rem;
+        }
+
+        .cmp-table tr:not(:last-child) td {
+            border-bottom: 1px solid rgba(54, 58, 69, 0.5);
+        }
+
+        .cmp-table .metric-label {
+            font-family: 'Open Sans', sans-serif;
+            font-weight: 600;
+            font-size: 0.82rem;
+            color: var(--muted);
+            text-align: left;
+        }
+
+        .cmp-verdict {
+            text-align: center;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 18px;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .cmp-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .cmp-actions button {
+            padding: 11px 26px;
+            border-radius: 8px;
+            font-family: 'Open Sans', sans-serif;
+            font-weight: 700;
+            font-size: 0.88rem;
+            cursor: pointer;
+            border: 1px solid var(--panel-border);
+            transition: all 0.2s;
+        }
+
+        .cmp-actions .btn-restart {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .cmp-actions .btn-restart:hover {
+            background: var(--accent-hover);
+        }
+
+        .cmp-actions .btn-close {
+            background: var(--panel);
+            color: var(--text);
+        }
+
+        .cmp-actions .btn-close:hover {
+            border-color: var(--accent);
         }
     </style>
 </head>
@@ -289,7 +485,8 @@
         <button class="sync-btn secondary" id="pause-both-btn">⏸ Pause Both</button>
         <button class="sync-btn secondary" id="next-frame-btn" title="Next Frame">►►</button>
         <button class="sync-btn secondary" id="restart-btn">↺ Restart Both</button>
-        <select id="speed-control-compare" style="background:var(--panel);border:1px solid var(--panel-border);color:var(--text);border-radius:6px;padding:8px 12px;font-family:'Open Sans',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;">
+        <select id="speed-control-compare"
+            style="background:var(--panel);border:1px solid var(--panel-border);color:var(--text);border-radius:6px;padding:8px 12px;font-family:'Open Sans',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;">
             <option value="0.25">0.25x</option>
             <option value="0.5">0.5x</option>
             <option value="0.75">0.75x</option>
@@ -373,14 +570,60 @@
 
     </main>
 
+    <!-- Comparison Summary (inline below videos) -->
+    <section class="compare-summary" id="compare-summary-section">
+        <div class="summary-card">
+            <div class="cmp-header">
+                <h2>Run <span>Comparison</span></h2>
+                <p>Side-by-side performance breakdown</p>
+            </div>
+            <table class="cmp-table">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Run A</th>
+                        <th>Run B</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="metric-label">Avg Stability</td>
+                        <td id="cmp-stability-a">--</td>
+                        <td id="cmp-stability-b">--</td>
+                    </tr>
+                    <tr>
+                        <td class="metric-label">Smoothness</td>
+                        <td id="cmp-smoothness-a">--</td>
+                        <td id="cmp-smoothness-b">--</td>
+                    </tr>
+                    <tr>
+                        <td class="metric-label">Avg Velocity</td>
+                        <td id="cmp-velocity-a">--</td>
+                        <td id="cmp-velocity-b">--</td>
+                    </tr>
+                    <tr>
+                        <td class="metric-label">Frames</td>
+                        <td id="cmp-frames-a">--</td>
+                        <td id="cmp-frames-b">--</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="cmp-verdict" id="cmp-verdict">Waiting for both videos to finish...</div>
+            <div class="cmp-actions">
+                <button class="btn-restart" id="cmp-restart-btn">↻ Restart Both</button>
+                <button class="btn-close" id="cmp-dismiss-btn">Hide Summary</button>
+            </div>
+        </div>
+    </section>
+
     <script type="module" src="./compareOverlay.js"></script>
 
     <script>
         // Sync controls — plain JS, no module needed
         const videoA = document.getElementById('video-a');
         const videoB = document.getElementById('video-b');
-        const hintA  = document.getElementById('hint-a');
-        const hintB  = document.getElementById('hint-b');
+        const hintA = document.getElementById('hint-a');
+        const hintB = document.getElementById('hint-b');
         const speedControl = document.getElementById('speed-control-compare');
 
         // Hide hints once a video has loaded
@@ -401,7 +644,7 @@
             videoA.play();
             videoB.play();
         });
-        
+
         // Speed control for both videos
         speedControl.addEventListener('change', () => {
             const speed = parseFloat(speedControl.value);
@@ -413,12 +656,8 @@
         function stepBothFrames(direction) {
             const fps = 30;
             const frameDuration = 1 / fps;
-            
-            // Pause both videos if playing
             if (!videoA.paused) videoA.pause();
             if (!videoB.paused) videoB.pause();
-            
-            // Step both videos
             if (videoA.duration) {
                 videoA.currentTime = Math.max(0, Math.min(videoA.duration, videoA.currentTime + (direction * frameDuration)));
             }
@@ -429,7 +668,54 @@
 
         document.getElementById('prev-frame-btn').addEventListener('click', () => stepBothFrames(-1));
         document.getElementById('next-frame-btn').addEventListener('click', () => stepBothFrames(1));
+
+        // Comparison summary controls
+        document.getElementById('cmp-dismiss-btn').addEventListener('click', () => {
+            if (window._hideComparisonSummary) window._hideComparisonSummary();
+        });
+        document.getElementById('cmp-restart-btn').addEventListener('click', () => {
+            if (window._hideComparisonSummary) window._hideComparisonSummary();
+            videoA.currentTime = 0;
+            videoB.currentTime = 0;
+            videoA.play();
+            videoB.play();
+        });
+
+        // Track video ended state and show summary
+        let endedA = false, endedB = false;
+
+        function tryShowSummary() {
+            const section = document.getElementById('compare-summary-section');
+            if (!section) {
+                console.warn('[compare] Summary section not found');
+                return;
+            }
+            section.classList.add('visible');
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            console.log('[compare] Summary section shown');
+
+            // If the module's populate function is ready, use it for data
+            if (window._showComparisonSummary) {
+                window._showComparisonSummary();
+            }
+        }
+
+        videoA.addEventListener('ended', () => {
+            endedA = true;
+            console.log('[compare] Video A ended');
+            tryShowSummary();
+        });
+        videoB.addEventListener('ended', () => {
+            endedB = true;
+            console.log('[compare] Video B ended');
+            tryShowSummary();
+        });
+
+        // Reset ended flags when loading new videos
+        videoA.addEventListener('loadeddata', () => { endedA = false; });
+        videoB.addEventListener('loadeddata', () => { endedB = false; });
     </script>
 
 </body>
+
 </html>

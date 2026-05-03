@@ -5,8 +5,10 @@ import {
     drawVelocityChart,
     getCurrentVelocity,
     getCurrentSmoothnessScore,
-    calculateDetailedMetrics
+    calculateDetailedMetrics,
+    getSessionSummary
 } from './dataAnalysis.js';
+import { showSessionSummary } from './sessionSummary.js';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
@@ -53,12 +55,19 @@ const DETECT_EVERY_N_FRAMES = 2;         // Run MediaPipe every 2nd frame (~30 d
 const UI_UPDATE_EVERY_N_FRAMES = 2;      // Throttle DOM text writes to ~30Hz (chart still draws every frame)
 
 // --- CONFIGURATION & TRACKING HISTORY ---
-const cogHistory = [];
-const optimalHistory = [];
 const cogPath = [];
-const SMOOTHING_WINDOW = 5;
+const COG_EMA_ALPHA = 0.35;           // EMA smoothing for COG (0=max smooth, 1=no smooth)
+const OPTIMAL_EMA_ALPHA = 0.35;       // EMA smoothing for optimal COG
 const MAX_PATH_POINTS = 300;
-const MAX_DETECTION_WIDTH = 640; // Scale down for MediaPipe — it doesn't need full-res frames
+const MAX_DETECTION_WIDTH = 640;       // Scale down for MediaPipe — it doesn't need full-res frames
+
+// EMA state (persists across frames, reset on new video/seek)
+let prevSmoothedCOG = null;
+let prevSmoothedOptimal = null;
+
+// Keep a short history of raw COG for the analytics module (smoothness needs recent positions)
+const cogHistory = [];
+const COG_HISTORY_LEN = 8; // enough for jerk calculation
 
 function getMidpoint(p1, p2) {
     return {
@@ -69,7 +78,13 @@ function getMidpoint(p1, p2) {
 }
 
 /**
- * Calculates the anthropometric COG based on segment weights
+ * Calculates the anthropometric COG based on de Leva (1996) segment weights.
+ * Smoothed via Exponential Moving Average for minimal phase lag.
+ *
+ * Segment weights (adjusted from de Leva male averages to fit MediaPipe landmarks):
+ *   Head 0.07, Trunk 0.4556, Thighs 0.10×2, Shanks 0.05×2, 
+ *   Upper arms 0.03×2, Forearms 0.02×2, Feet 0.015×2
+ *   Total = 1.0
  */
 function calculateCOG(landmarks) {
     const head = landmarks[0];
@@ -78,16 +93,18 @@ function calculateCOG(landmarks) {
     const trunk = getMidpoint(shoulderMid, hipMid);
 
     const segments = [
-        { pos: head, weight: 0.08 },
-        { pos: trunk, weight: 0.50 },
+        { pos: head, weight: 0.0700 },                                   // Head
+        { pos: trunk, weight: 0.4556 },                                  // Trunk (torso)
         { pos: getMidpoint(landmarks[23], landmarks[25]), weight: 0.10 }, // R-Thigh
         { pos: getMidpoint(landmarks[24], landmarks[26]), weight: 0.10 }, // L-Thigh
-        { pos: getMidpoint(landmarks[25], landmarks[27]), weight: 0.06 }, // R-Leg
-        { pos: getMidpoint(landmarks[26], landmarks[28]), weight: 0.06 }, // L-Leg
+        { pos: getMidpoint(landmarks[25], landmarks[27]), weight: 0.05 }, // R-Shank
+        { pos: getMidpoint(landmarks[26], landmarks[28]), weight: 0.05 }, // L-Shank
         { pos: getMidpoint(landmarks[11], landmarks[13]), weight: 0.03 }, // R-UpperArm
         { pos: getMidpoint(landmarks[12], landmarks[14]), weight: 0.03 }, // L-UpperArm
         { pos: getMidpoint(landmarks[13], landmarks[15]), weight: 0.02 }, // R-Forearm
         { pos: getMidpoint(landmarks[14], landmarks[16]), weight: 0.02 }, // L-Forearm
+        { pos: getMidpoint(landmarks[27], landmarks[31]), weight: 0.015 }, // R-Foot (ankle↔toe)
+        { pos: getMidpoint(landmarks[28], landmarks[32]), weight: 0.015 }, // L-Foot (ankle↔toe)
     ];
 
     let rawCOG = { x: 0, y: 0 };
@@ -96,18 +113,30 @@ function calculateCOG(landmarks) {
         rawCOG.y += s.pos.y * s.weight;
     });
 
-    cogHistory.push(rawCOG);
-    if (cogHistory.length > SMOOTHING_WINDOW) cogHistory.shift();
+    // EMA smoothing: eliminates the ~2-3 frame lag of SMA
+    if (!prevSmoothedCOG) {
+        prevSmoothedCOG = { x: rawCOG.x, y: rawCOG.y };
+    } else {
+        prevSmoothedCOG = {
+            x: COG_EMA_ALPHA * rawCOG.x + (1 - COG_EMA_ALPHA) * prevSmoothedCOG.x,
+            y: COG_EMA_ALPHA * rawCOG.y + (1 - COG_EMA_ALPHA) * prevSmoothedCOG.y
+        };
+    }
 
-    return cogHistory.reduce((acc, curr) => ({
-        x: acc.x + curr.x / cogHistory.length,
-        y: acc.y + curr.y / cogHistory.length
-    }), { x: 0, y: 0 });
+    // Keep a short raw history for the analytics module (smoothness jerk calc)
+    cogHistory.push({ x: prevSmoothedCOG.x, y: prevSmoothedCOG.y });
+    if (cogHistory.length > COG_HISTORY_LEN) cogHistory.shift();
+
+    return { x: prevSmoothedCOG.x, y: prevSmoothedCOG.y };
 }
 
 /**
  * Calculates the "Achievable Optimal X" by interpolating between the 
  * base of support (feet) and the upper anchor (hands) at the current COG height.
+ * 
+ * Now clamps the interpolation parameter t to [0, 1] so overhangs and
+ * inverted positions don't produce nonsensical optimal points.
+ * Smoothed via EMA instead of SMA for less phase lag.
  */
 function calculateOptimalCOG(landmarks, currentCog) {
     const leftAnkle = landmarks[27];
@@ -128,12 +157,14 @@ function calculateOptimalCOG(landmarks, currentCog) {
     let optimalX;
 
     // 3. Find where the current Y intersects the Tension Line
-    // Prevent divide by zero if hands and feet are exactly horizontal  ex: heel hook)
+    // Prevent divide by zero if hands and feet are exactly horizontal (ex: heel hook)
     if (Math.abs(pullY - baseY) < 0.001) {
         optimalX = baseX;
     } else {
         // Calculate the percentage of height (t) the COG is at between feet and hands
-        const t = (currentCog.y - baseY) / (pullY - baseY);
+        let t = (currentCog.y - baseY) / (pullY - baseY);
+        // Clamp t to [0, 1] — prevents nonsensical extrapolation on overhangs
+        t = Math.max(0, Math.min(1, t));
         // Map that percentage to the X axis
         optimalX = baseX + t * (pullX - baseX);
     }
@@ -145,16 +176,21 @@ function calculateOptimalCOG(landmarks, currentCog) {
         anchors: { baseX, baseY, pullX, pullY }
     };
 
-    optimalHistory.push(rawOptimal);
-    if (optimalHistory.length > SMOOTHING_WINDOW) optimalHistory.shift();
+    // EMA smoothing
+    if (!prevSmoothedOptimal) {
+        prevSmoothedOptimal = { x: rawOptimal.x, y: rawOptimal.y };
+    } else {
+        prevSmoothedOptimal = {
+            x: OPTIMAL_EMA_ALPHA * rawOptimal.x + (1 - OPTIMAL_EMA_ALPHA) * prevSmoothedOptimal.x,
+            y: OPTIMAL_EMA_ALPHA * rawOptimal.y + (1 - OPTIMAL_EMA_ALPHA) * prevSmoothedOptimal.y
+        };
+    }
 
-    const smoothed = optimalHistory.reduce((acc, curr) => ({
-        x: acc.x + curr.x / optimalHistory.length,
-        y: acc.y + curr.y / optimalHistory.length,
-        anchors: rawOptimal.anchors // Keep current anchors for drawing
-    }), { x: 0, y: 0 });
-
-    return smoothed;
+    return {
+        x: prevSmoothedOptimal.x,
+        y: prevSmoothedOptimal.y,
+        anchors: rawOptimal.anchors
+    };
 }
 
 // --- UTILITIES ---
@@ -197,8 +233,9 @@ function stopActiveStream() {
 function resetLoop() {
     lastVideoTime = -1;
     cogHistory.length = 0;
-    optimalHistory.length = 0;
     cogPath.length = 0;
+    prevSmoothedCOG = null;
+    prevSmoothedOptimal = null;
     resetAnalytics();
     if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
@@ -320,7 +357,13 @@ function drawResults(result) {
         }
 
         // --- CALCULATE DATA ANALYTICS ---
-        analyzeSmoothness(cogHistory, canvasContext, canvas.width, canvas.height, s);
+        // Compute body height for normalization (head → ankle midpoint, in normalized coords)
+        const ankleMid = getMidpoint(landmarks[27], landmarks[28]);
+        const bodyHeight = Math.sqrt(
+            Math.pow(landmarks[0].x - ankleMid.x, 2) +
+            Math.pow(landmarks[0].y - ankleMid.y, 2)
+        );
+        analyzeSmoothness(cogHistory, canvasContext, canvas.width, canvas.height, s, bodyHeight);
 
         // Velocity chart redraws every frame (it's just canvas lines — cheap)
         if (velocityChartCtx) {
@@ -334,7 +377,8 @@ function drawResults(result) {
         // DOM text writes throttled — browsers can struggle with layout at 60Hz
         if (frameCount % UI_UPDATE_EVERY_N_FRAMES === 0) {
             if (velocityCurrent) {
-                velocityCurrent.textContent = `${getCurrentVelocity().toFixed(1)} px/frame`;
+                // %bh/f: percent body heights per frame (give description in tooltip)
+                velocityCurrent.textContent = `${(getCurrentVelocity() * 100).toFixed(1)}% bh/f`;
             }
         }
     }
@@ -483,10 +527,11 @@ playPauseBtn.addEventListener('click', () => {
 seekBar.addEventListener('input', () => {
     const time = (seekBar.value / 100) * video.duration;
     video.currentTime = time;
-    // Clear histories so drawing doesn't jump
+    // Clear histories and EMA state so drawing doesn't jump
     cogHistory.length = 0;
-    optimalHistory.length = 0;
     cogPath.length = 0;
+    prevSmoothedCOG = null;
+    prevSmoothedOptimal = null;
 });
 
 speedControl.addEventListener('change', () => {
@@ -496,25 +541,26 @@ speedControl.addEventListener('change', () => {
 // Frame stepping functions
 async function stepFrame(direction) {
     if (!video.duration || !poseLandmarker) return;
-    
+
     // Pause the video if playing
     if (!video.paused) {
         video.pause();
         playPauseBtn.textContent = 'Play';
     }
-    
+
     // Estimate frame duration (assuming 30fps, adjust if needed)
     const fps = 30;
     const frameDuration = 1 / fps;
-    
+
     // Step forward or backward by one frame
     video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + (direction * frameDuration)));
-    
-    // Clear histories so drawing doesn't jump
+
+    // Clear histories and EMA state so drawing doesn't jump
     cogHistory.length = 0;
-    optimalHistory.length = 0;
     cogPath.length = 0;
-    
+    prevSmoothedCOG = null;
+    prevSmoothedOptimal = null;
+
     // Wait for the video to seek to the new time, then manually process the frame
     await new Promise(resolve => {
         const onSeeked = () => {
@@ -523,7 +569,7 @@ async function stepFrame(direction) {
         };
         video.addEventListener('seeked', onSeeked);
     });
-    
+
     // Manually trigger frame processing
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
@@ -563,3 +609,21 @@ await loadLandmarker(modelSelect.value, delegateSelect.value);
 video.addEventListener('loadedmetadata', resizeCanvas);
 window.addEventListener('resize', resizeVelocityChart);
 resizeVelocityChart();
+
+// --- POST-VIDEO SUMMARY ---
+video.addEventListener('ended', () => {
+    const summary = getSessionSummary();
+    showSessionSummary(summary, {
+        onReplay: () => {
+            resetLoop();
+            video.currentTime = 0;
+            video.play();
+            playPauseBtn.textContent = 'Pause';
+            trackFrame();
+        },
+        onDismiss: () => {
+            playPauseBtn.textContent = 'Play';
+        }
+    });
+    playPauseBtn.textContent = 'Play';
+});
