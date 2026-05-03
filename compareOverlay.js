@@ -19,6 +19,14 @@ const inputCtx = inputCanvas.getContext('2d', { willReadFrequently: true });
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const statusText = document.getElementById('status-text');
 
+// ─── TIME HELPER ──────────────────────────────────────────────────────────────
+function formatTime(seconds) {
+    if (isNaN(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 // ─── PER-VIDEO STATE FACTORY ──────────────────────────────────────────────────
 /**
  * Creates an isolated state + DOM bundle for one video panel.
@@ -34,10 +42,12 @@ function createPanel(id) {
     const stabilityEl = document.getElementById(`stability-${id}`);
     const accuracyEl = document.getElementById(`accuracy-${id}`);
     const velocityEl = document.getElementById(`velocity-${id}`);
+    const seekBar = document.getElementById(`seek-bar-${id}`);
+    const timeDisplay = document.getElementById(`time-display-${id}`);
 
     return {
         id, video, canvas, ctx, drawUtils, fileInput, labelEl,
-        stabilityEl, accuracyEl, velocityEl,
+        stabilityEl, accuracyEl, velocityEl, seekBar, timeDisplay,
         cogHistory: [],
         optimalHistory: [],
         cogPath: [],
@@ -283,8 +293,32 @@ function setStatus(msg) {
     if (statusText) statusText.textContent = msg;
 }
 
-// ─── FILE INPUT HANDLERS ─────────────────────────────────────────────────────
+// ─── FILE & SEEK HANDLERS ─────────────────────────────────────────────────────
 panels.forEach(panel => {
+    
+    // Update seek bar UI as video plays
+    panel.video.addEventListener('timeupdate', () => {
+        if (panel.video.duration && panel.seekBar) {
+            panel.seekBar.value = (panel.video.currentTime / panel.video.duration) * 100;
+            if (panel.timeDisplay) {
+                panel.timeDisplay.textContent = `${formatTime(panel.video.currentTime)} / ${formatTime(panel.video.duration)}`;
+            }
+        }
+    });
+
+    // Handle manual seek adjustment
+    if (panel.seekBar) {
+        panel.seekBar.addEventListener('input', () => {
+            const time = (panel.seekBar.value / 100) * panel.video.duration;
+            panel.video.currentTime = time;
+            
+            // Clear tracking histories so the drawn lines don't glitch/jump across the screen
+            panel.cogHistory.length = 0;
+            panel.optimalHistory.length = 0;
+            panel.cogPath.length = 0;
+        });
+    }
+
     panel.fileInput.addEventListener('change', () => {
         const file = panel.fileInput.files?.[0];
         if (!file) return;
@@ -296,10 +330,12 @@ panels.forEach(panel => {
         panel.cogPath.length = 0;
         panel.lastVideoTime = -1;
         panel.lastResult = null;
+        
         panel.video.onloadedmetadata = () => {
             resizePanel(panel);
             panel.video.play();
             if (panel.labelEl) panel.labelEl.textContent = file.name;
+            if (panel.seekBar) panel.seekBar.disabled = false;
             setStatus(`${panel.id.toUpperCase()}: ${file.name}`);
         };
 
