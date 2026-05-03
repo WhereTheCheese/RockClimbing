@@ -65,7 +65,7 @@ export function drawVelocityChart(chartContext, chartWidth, chartHeight) {
     chartContext.stroke();
 }
 
-export function analyzeSmoothness(cogHistory, canvasContext, canvasWidth, canvasHeight) {
+export function analyzeSmoothness(cogHistory, canvasContext, canvasWidth, canvasHeight, s = 1) {
     if (cogHistory.length > 1) {
         const currentPos = cogHistory[cogHistory.length - 1];
         const previousPos = cogHistory[cogHistory.length - 2];
@@ -105,20 +105,25 @@ export function analyzeSmoothness(cogHistory, canvasContext, canvasWidth, canvas
         }
     }
 
-    // --- DRAW THE SCORE ON THE UI ---
+    // --- DRAW THE SCORE ON THE UI (scaled for readability) ---
+    const boxX = 20 * s;
+    const boxY = 20 * s;
+    const boxW = 220 * s;
+    const boxH = 80 * s;
+
     canvasContext.fillStyle = 'rgba(9, 18, 30, 0.7)';
-    canvasContext.roundRect(20, 20, 220, 80, 12);
+    canvasContext.roundRect(boxX, boxY, boxW, boxH, 12 * s);
     canvasContext.fill();
     canvasContext.strokeStyle = 'rgba(131, 160, 194, 0.3)';
-    canvasContext.lineWidth = 1;
+    canvasContext.lineWidth = 1 * s;
     canvasContext.stroke();
 
     // Color code: Green if smooth, Orange if jerky
     canvasContext.fillStyle = currentSmoothnessScore > 75 ? '#67f2c4' : '#ffd166';
-    canvasContext.font = 'bold 32px Inter, sans-serif';
-    canvasContext.fillText(currentSmoothnessScore.toFixed(0), 40, 60);
+    canvasContext.font = `bold ${Math.round(32 * s)}px Inter, sans-serif`;
+    canvasContext.fillText(currentSmoothnessScore.toFixed(0), boxX + 20 * s, boxY + 40 * s);
 
     canvasContext.fillStyle = '#8fa6c2';
-    canvasContext.font = '14px Inter, sans-serif';
-    canvasContext.fillText('Smoothness Score', 40, 82);
+    canvasContext.font = `${Math.round(14 * s)}px Inter, sans-serif`;
+    canvasContext.fillText('Smoothness Score', boxX + 20 * s, boxY + 62 * s);
 }
