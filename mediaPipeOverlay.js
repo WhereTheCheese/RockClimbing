@@ -109,6 +109,36 @@ function resetLoop() {
     }
 }
 
+// --- ADDED: CONFIG FOR OPTIMAL TRACKING ---
+const optimalHistory = [];
+
+function calculateOptimalCOG(landmarks, currentCog) {
+    // We define the base of support using the ankles (27, 28)
+    const leftAnkle = landmarks[27];
+    const rightAnkle = landmarks[28];
+    
+    if (!leftAnkle || !rightAnkle) return null;
+
+    // Optimal X is the midpoint between the feet
+    const baseMidpointX = (leftAnkle.x + rightAnkle.x) / 2;
+
+    // We keep the Current Y (vertical height) but move the X to the "Perfect Balance" line
+    const rawOptimal = {
+        x: baseMidpointX,
+        y: currentCog.y
+    };
+
+    // Smooth the optimal point too
+    optimalHistory.push(rawOptimal);
+    if (optimalHistory.length > 5) optimalHistory.shift();
+
+    return optimalHistory.reduce((acc, curr) => ({
+        x: acc.x + curr.x / optimalHistory.length,
+        y: acc.y + curr.y / optimalHistory.length
+    }), { x: 0, y: 0 });
+}
+
+// --- UPDATED DRAWING LOGIC ---
 function drawCogPath() {
     if (cogPath.length < 2) {
         return;
@@ -137,16 +167,16 @@ function drawResults(result) {
 
     const landmarks = result.landmarks?.[0];
     if (landmarks?.length) {
+        // 1. Draw Skeleton
         // 1. Draw the standard skeleton
         drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
-            color: '#67f2c4',
+            color: 'rgba(103, 242, 196, 0.5)', // Faded green for skeleton
             lineWidth: 2
         });
-        drawingUtils.drawLandmarks(landmarks, {
-            color: '#f7fbff',
-            radius: 2
-        });
 
+        // 2. Calculate COGs
+        const currentCog = calculateCOG(landmarks);
+        const optimalCog = calculateOptimalCOG(landmarks, currentCog);
         // 2. Calculate and draw COG with trail
         const cog = calculateCOG(landmarks);
         cogPath.push({
@@ -159,25 +189,50 @@ function drawResults(result) {
 
         drawCogPath();
 
-        // Draw COG Outer Ring
+        if (optimalCog) {
+            // 3. Draw Balance Line (Vertical dashed line from the base)
+            canvasContext.setLineDash([5, 5]);
+            canvasContext.beginPath();
+            canvasContext.moveTo(optimalCog.x * canvas.width, 0);
+            canvasContext.lineTo(optimalCog.x * canvas.width, canvas.height);
+            canvasContext.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+            canvasContext.stroke();
+            canvasContext.setLineDash([]);
+
+            // 4. Draw Offset Line (The gap between current and optimal)
+            canvasContext.beginPath();
+            canvasContext.moveTo(currentCog.x * canvas.width, currentCog.y * canvas.height);
+            canvasContext.lineTo(optimalCog.x * canvas.width, optimalCog.y * canvas.height);
+            canvasContext.strokeStyle = '#ff4d4d'; // Red for the "struggle" gap
+            canvasContext.lineWidth = 2;
+            canvasContext.stroke();
+
+            // 5. Draw Optimal COG (The "Goal")
+            canvasContext.beginPath();
+            canvasContext.arc(optimalCog.x * canvas.width, optimalCog.y * canvas.height, 8, 0, Math.PI * 2);
+            canvasContext.fillStyle = '#00f2ff'; // Cyan for optimal
+            canvasContext.fill();
+        }
+
+        // 6. Draw Current COG (The "Reality")
         canvasContext.beginPath();
-        canvasContext.arc(cog.x * canvas.width, cog.y * canvas.height, 12, 0, Math.PI * 2);
-        canvasContext.strokeStyle = '#ffd166';
-        canvasContext.lineWidth = 3;
+        canvasContext.arc(currentCog.x * canvas.width, currentCog.y * canvas.height, 10, 0, Math.PI * 2);
+        canvasContext.fillStyle = '#ffd166'; // Yellow for current
+        canvasContext.fill();
+        canvasContext.strokeStyle = '#000';
         canvasContext.stroke();
 
-        // Draw COG Center Point
-        canvasContext.beginPath();
-        canvasContext.arc(cog.x * canvas.width, cog.y * canvas.height, 4, 0, Math.PI * 2);
-        canvasContext.fillStyle = '#ffd166';
-        canvasContext.fill();
+        // 7. Legend / Text
+        canvasContext.font = '12px Inter';
 
         // Label the COG
         canvasContext.fillStyle = '#ffd166';
-        canvasContext.font = 'bold 12px Inter, sans-serif';
-        canvasContext.fillText('COG', (cog.x * canvas.width) + 15, (cog.y * canvas.height) + 5);
+        canvasContext.fillText('Current COG', (currentCog.x * canvas.width) + 15, (currentCog.y * canvas.height) - 5);
+        if (optimalCog) {
+            canvasContext.fillStyle = '#00f2ff';
+            canvasContext.fillText('Optimal Balance', (optimalCog.x * canvas.width) + 15, (optimalCog.y * canvas.height) + 15);
+        }
     }
-
     canvasContext.restore();
 }
 
