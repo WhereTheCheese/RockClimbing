@@ -265,6 +265,157 @@
             color: #4a505e;
         }
 
+        /* ── Per-panel controls ── */
+        .panel-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0 2px;
+        }
+
+        .panel-controls button {
+            background: var(--bg);
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+            border-radius: 5px;
+            width: 32px;
+            height: 28px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color 0.15s;
+            flex-shrink: 0;
+        }
+
+        .panel-controls button:hover {
+            border-color: var(--accent);
+        }
+
+        .panel-seek {
+            flex: 1;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--panel-border);
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .panel-seek::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        .panel-time {
+            font-size: 0.72rem;
+            color: var(--muted);
+            font-variant-numeric: tabular-nums;
+            min-width: 80px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        /* ── Trim slider (dual-handle) ── */
+        .trim-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 0 0;
+        }
+
+        .trim-label {
+            font-size: 0.68rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            flex-shrink: 0;
+        }
+
+        .trim-track {
+            position: relative;
+            flex: 1;
+            height: 16px;
+            cursor: default;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .trim-track-bg {
+            position: absolute;
+            top: 6px;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--panel-border);
+            border-radius: 2px;
+        }
+
+        .trim-track-fill {
+            position: absolute;
+            top: 6px;
+            height: 4px;
+            background: rgba(255, 107, 53, 0.5);
+            border-radius: 2px;
+            pointer-events: none;
+        }
+
+        .trim-handle {
+            position: absolute;
+            top: 2px;
+            width: 12px;
+            height: 12px;
+            background: var(--accent);
+            border: 2px solid #fff;
+            border-radius: 50%;
+            cursor: grab;
+            transform: translateX(-6px);
+            z-index: 2;
+            transition: box-shadow 0.15s;
+        }
+
+        .trim-handle:hover,
+        .trim-handle.dragging {
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.3);
+            cursor: grabbing;
+        }
+
+        .trim-handle-start { left: 0%; }
+        .trim-handle-end { left: 100%; }
+
+        .trim-time-label {
+            font-size: 0.68rem;
+            color: var(--muted);
+            font-variant-numeric: tabular-nums;
+            min-width: 38px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .trim-reset {
+            background: none;
+            border: 1px solid var(--panel-border);
+            color: var(--muted);
+            border-radius: 3px;
+            padding: 2px 8px;
+            font-size: 0.65rem;
+            font-family: 'Open Sans', sans-serif;
+            cursor: pointer;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+
+        .trim-reset:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
         /* ── Sync controls ── */
         .sync-bar {
             display: flex;
@@ -461,6 +612,29 @@
         .cmp-actions .btn-close:hover {
             border-color: var(--accent);
         }
+
+        /* ── Model/delegate selects ── */
+        .settings-select {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-family: 'Open Sans', sans-serif;
+            font-weight: 600;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .settings-select:hover {
+            border-color: var(--accent);
+        }
+
+        .settings-select:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 
@@ -473,6 +647,15 @@
         </div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <span class="status-badge" id="status-text">Loading model…</span>
+            <select id="model-select" class="settings-select" title="Pose model">
+                <option value="lite">Lite (fast)</option>
+                <option value="full" selected>Full (balanced)</option>
+                <option value="heavy">Heavy (accurate)</option>
+            </select>
+            <select id="delegate-select" class="settings-select" title="Compute backend">
+                <option value="GPU">GPU</option>
+                <option value="CPU" selected>CPU</option>
+            </select>
             <a href="./index.html" class="nav-link">← Back to Single View</a>
         </div>
     </header>
@@ -518,6 +701,23 @@
                     Upload a climbing video for Run A
                 </div>
             </div>
+            <div class="panel-controls">
+                <button id="pp-a" title="Play / Pause">▶</button>
+                <input type="range" class="panel-seek" id="seek-a" min="0" max="1000" value="0">
+                <span class="panel-time" id="time-a">0:00 / 0:00</span>
+            </div>
+            <div class="trim-bar" id="trim-bar-a">
+                <span class="trim-label">Trim</span>
+                <span class="trim-time-label" id="trim-time-start-a">0:00</span>
+                <div class="trim-track" id="trim-track-a">
+                    <div class="trim-track-bg"></div>
+                    <div class="trim-track-fill" id="trim-fill-a"></div>
+                    <div class="trim-handle trim-handle-start" id="trim-handle-start-a" data-handle="start"></div>
+                    <div class="trim-handle trim-handle-end" id="trim-handle-end-a" data-handle="end"></div>
+                </div>
+                <span class="trim-time-label" id="trim-time-end-a">0:00</span>
+                <button class="trim-reset" id="trim-reset-a">Reset</button>
+            </div>
             <div class="stats-row">
                 <div class="stat-card">
                     <div class="stat-label">Average Stability</div>
@@ -551,6 +751,23 @@
                     <span class="icon">🎬</span>
                     Upload a climbing video for Run B
                 </div>
+            </div>
+            <div class="panel-controls">
+                <button id="pp-b" title="Play / Pause">▶</button>
+                <input type="range" class="panel-seek" id="seek-b" min="0" max="1000" value="0">
+                <span class="panel-time" id="time-b">0:00 / 0:00</span>
+            </div>
+            <div class="trim-bar" id="trim-bar-b">
+                <span class="trim-label">Trim</span>
+                <span class="trim-time-label" id="trim-time-start-b">0:00</span>
+                <div class="trim-track" id="trim-track-b">
+                    <div class="trim-track-bg"></div>
+                    <div class="trim-track-fill" id="trim-fill-b"></div>
+                    <div class="trim-handle trim-handle-start" id="trim-handle-start-b" data-handle="start"></div>
+                    <div class="trim-handle trim-handle-end" id="trim-handle-end-b" data-handle="end"></div>
+                </div>
+                <span class="trim-time-label" id="trim-time-end-b">0:00</span>
+                <button class="trim-reset" id="trim-reset-b">Reset</button>
             </div>
             <div class="stats-row">
                 <div class="stat-card">
@@ -639,8 +856,13 @@
             videoB.pause();
         });
         document.getElementById('restart-btn').addEventListener('click', () => {
-            videoA.currentTime = 0;
-            videoB.currentTime = 0;
+            let startA = 0, startB = 0;
+            if (window._comparePanels) {
+                startA = window._comparePanels[0].trimStart ?? 0;
+                startB = window._comparePanels[1].trimStart ?? 0;
+            }
+            videoA.currentTime = startA;
+            videoB.currentTime = startB;
             videoA.play();
             videoB.play();
         });
@@ -675,8 +897,13 @@
         });
         document.getElementById('cmp-restart-btn').addEventListener('click', () => {
             if (window._hideComparisonSummary) window._hideComparisonSummary();
-            videoA.currentTime = 0;
-            videoB.currentTime = 0;
+            let startA = 0, startB = 0;
+            if (window._comparePanels) {
+                startA = window._comparePanels[0].trimStart ?? 0;
+                startB = window._comparePanels[1].trimStart ?? 0;
+            }
+            videoA.currentTime = startA;
+            videoB.currentTime = startB;
             videoA.play();
             videoB.play();
         });
