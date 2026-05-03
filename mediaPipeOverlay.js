@@ -11,8 +11,8 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const canvasContext = canvas.getContext('2d');
 
-video.width = 640;
-video.height = 480;
+//video.width = 640;
+//video.height = 480;
 
 
 const inputCanvas = document.createElement('canvas');
