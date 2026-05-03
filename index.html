@@ -459,6 +459,207 @@
             }
         }
 
+        /* --- SESSION SUMMARY MODAL --- */
+        .summary-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+
+        .summary-backdrop.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .summary-modal {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 36px 32px 28px;
+            max-width: 560px;
+            width: 90vw;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+            transform: translateY(24px);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .summary-backdrop.visible .summary-modal {
+            transform: translateY(0);
+        }
+
+        .summary-header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .summary-header h2 {
+            margin: 0;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.6rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: -0.02em;
+        }
+
+        .summary-header h2 span {
+            color: var(--accent);
+        }
+
+        .summary-header p {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .summary-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .summary-metric {
+            background: var(--bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .summary-metric.highlight {
+            border-color: var(--accent);
+            background: rgba(255, 107, 53, 0.06);
+        }
+
+        .summary-metric h4 {
+            margin: 0 0 6px;
+            color: var(--muted);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            font-weight: 600;
+        }
+
+        .summary-metric .metric-value {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .summary-divider {
+            border: none;
+            border-top: 1px solid var(--panel-border);
+            margin: 0 0 20px;
+        }
+
+        .summary-tips-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .summary-tips-header h3 {
+            margin: 0;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .tips-list {
+            list-style: none;
+            margin: 0 0 28px;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .tip-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            background: var(--bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            color: var(--text);
+        }
+
+        .tip-item.tip-warning {
+            border-left: 3px solid #ffd166;
+        }
+
+        .tip-item.tip-success {
+            border-left: 3px solid var(--success);
+        }
+
+        .tip-item.tip-tip {
+            border-left: 3px solid #7ec8ff;
+        }
+
+        .tip-icon {
+            font-size: 1.1rem;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .tip-text {
+            flex: 1;
+        }
+
+        .summary-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .summary-actions button {
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-family: 'Open Sans', sans-serif;
+            font-weight: 700;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border: 1px solid var(--panel-border);
+            transition: all 0.2s ease;
+        }
+
+        .btn-replay {
+            background: var(--accent);
+            border-color: var(--accent) !important;
+            color: #fff;
+        }
+
+        .btn-replay:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-dismiss {
+            background: var(--panel);
+            color: var(--text);
+        }
+
+        .btn-dismiss:hover {
+            border-color: var(--accent);
+            background: rgba(255, 107, 53, 0.1);
+        }
+
         @media (max-width: 768px) {
             .footer-content {
                 flex-direction: column;
@@ -562,6 +763,51 @@
         </aside>
     </main>
 
+    <!-- Session Summary Modal -->
+    <div class="summary-backdrop" id="session-summary-modal">
+        <div class="summary-modal">
+            <div class="summary-header">
+                <h2>Session <span>Summary</span></h2>
+                <p>Here's how your climb looked</p>
+            </div>
+
+            <div class="summary-metrics">
+                <div class="summary-metric highlight">
+                    <h4>Avg Stability</h4>
+                    <div class="metric-value" id="summary-stability">--</div>
+                </div>
+                <div class="summary-metric highlight">
+                    <h4>Smoothness</h4>
+                    <div class="metric-value" id="summary-smoothness">--</div>
+                </div>
+                <div class="summary-metric">
+                    <h4>Avg Velocity</h4>
+                    <div class="metric-value" id="summary-avg-velocity">--</div>
+                </div>
+                <div class="summary-metric">
+                    <h4>Peak Velocity</h4>
+                    <div class="metric-value" id="summary-peak-velocity">--</div>
+                </div>
+                <div class="summary-metric" style="grid-column: 1 / -1;">
+                    <h4>Frames Analyzed</h4>
+                    <div class="metric-value" id="summary-frames">--</div>
+                </div>
+            </div>
+
+            <hr class="summary-divider">
+
+            <div class="summary-tips-header">
+                <h3>🧗 Coaching Tips</h3>
+            </div>
+            <ul class="tips-list" id="summary-tips-list"></ul>
+
+            <div class="summary-actions">
+                <button class="btn-replay" id="summary-replay-btn">↻ Replay</button>
+                <button class="btn-dismiss" id="summary-dismiss-btn">Dismiss</button>
+            </div>
+        </div>
+    </div>
+
     <footer class="footer">
         <div class="footer-content">
             <div class="footer-logo">
@@ -595,7 +841,7 @@
         </div>
     </footer>
 
-    <script type="module" src="./mediaPipeOverlay.js?v=20260502"></script>
+    <script type="module" src="./mediaPipeOverlay.js?v=20260503"></script>
 </body>
 
 </html>

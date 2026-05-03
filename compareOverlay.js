@@ -5,8 +5,17 @@ import { calculateDetailedMetrics } from './dataAnalysis.js';
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
 const MAX_DETECTION_WIDTH = 640;
-const SMOOTHING_WINDOW = 5;
 const MAX_PATH_POINTS = 300;
+
+// EMA / analytics constants (matching main page)
+const COG_EMA_ALPHA = 0.35;
+const OPTIMAL_EMA_ALPHA = 0.35;
+const COG_HISTORY_LEN = 8;
+const ANALYTICS_WINDOW = 30;
+const JERK_SIGMOID_K = 8.0;
+const SCORE_EMA_ALPHA = 0.08;
+const STABILITY_SIGMA = 0.04;
+const STABILITY_EMA_ALPHA = 0.05;
 
 // ─── SHARED MEDIAPIPE INSTANCE ────────────────────────────────────────────────
 let poseLandmarker;
@@ -22,11 +31,34 @@ const inputCtxB = inputCanvasB.getContext('2d', { willReadFrequently: true });
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const statusText = document.getElementById('status-text');
 
+// ─── PER-PANEL ANALYTICS STATE ────────────────────────────────────────────────
+function createAnalyticsState() {
+    return {
+        velocityHistory: [],
+        accelHistory: [],
+        smoothnessScore: 100,
+        peakSmoothness: 0,
+        minSmoothness: 100,
+        currentVelocity: 0,
+        sessionStabilityEMA: 0,
+        totalFrames: 0,
+        stabilityScoreSum: 0,
+    };
+}
+
+function resetAnalyticsState(a) {
+    a.velocityHistory.length = 0;
+    a.accelHistory.length = 0;
+    a.smoothnessScore = 100;
+    a.peakSmoothness = 0;
+    a.minSmoothness = 100;
+    a.currentVelocity = 0;
+    a.sessionStabilityEMA = 0;
+    a.totalFrames = 0;
+    a.stabilityScoreSum = 0;
+}
+
 // ─── PER-VIDEO STATE FACTORY ──────────────────────────────────────────────────
-/**
- * Creates an isolated state + DOM bundle for one video panel.
- * @param {'a'|'b'} id
- */
 function createPanel(id) {
     const video = document.getElementById(`video-${id}`);
     const canvas = document.getElementById(`overlay-${id}`);
@@ -46,13 +78,14 @@ function createPanel(id) {
         id, video, canvas, ctx, drawUtils, fileInput, labelEl,
         stabilityEl, accuracyEl, velocityEl,
         cogHistory: [],
-        optimalHistory: [],
         cogPath: [],
+        prevSmoothedCOG: null,
+        prevSmoothedOptimal: null,
         lastVideoTime: -1,
         lastResult: null,
         objectUrl: null,
-        alignedFrames: 0,
-        totalFrames: 0,
+        ended: false,
+        analytics: createAnalyticsState(),
         inputCanvas,
         inputCtx,
     };
@@ -65,6 +98,7 @@ function midpoint(p1, p2) {
     return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2, z: (p1.z + p2.z) / 2 };
 }
 
+// COG with de Leva segments + EMA smoothing
 function calculateCOG(landmarks, panel) {
     const head = landmarks[0];
     const trunk = midpoint(
@@ -72,26 +106,39 @@ function calculateCOG(landmarks, panel) {
         midpoint(landmarks[23], landmarks[24])
     );
     const segments = [
-        { pos: head, weight: 0.08 },
-        { pos: trunk, weight: 0.50 },
+        { pos: head, weight: 0.0700 },
+        { pos: trunk, weight: 0.4556 },
         { pos: midpoint(landmarks[23], landmarks[25]), weight: 0.10 },
         { pos: midpoint(landmarks[24], landmarks[26]), weight: 0.10 },
-        { pos: midpoint(landmarks[25], landmarks[27]), weight: 0.06 },
-        { pos: midpoint(landmarks[26], landmarks[28]), weight: 0.06 },
+        { pos: midpoint(landmarks[25], landmarks[27]), weight: 0.05 },
+        { pos: midpoint(landmarks[26], landmarks[28]), weight: 0.05 },
         { pos: midpoint(landmarks[11], landmarks[13]), weight: 0.03 },
         { pos: midpoint(landmarks[12], landmarks[14]), weight: 0.03 },
         { pos: midpoint(landmarks[13], landmarks[15]), weight: 0.02 },
         { pos: midpoint(landmarks[14], landmarks[16]), weight: 0.02 },
+        { pos: midpoint(landmarks[27], landmarks[31] || landmarks[27]), weight: 0.015 },
+        { pos: midpoint(landmarks[28], landmarks[32] || landmarks[28]), weight: 0.015 },
     ];
     let raw = { x: 0, y: 0 };
     segments.forEach(s => { raw.x += s.pos.x * s.weight; raw.y += s.pos.y * s.weight; });
 
-    const h = panel.cogHistory;
-    h.push(raw);
-    if (h.length > SMOOTHING_WINDOW) h.shift();
-    return h.reduce((acc, c) => ({ x: acc.x + c.x / h.length, y: acc.y + c.y / h.length }), { x: 0, y: 0 });
+    // EMA smoothing
+    if (!panel.prevSmoothedCOG) {
+        panel.prevSmoothedCOG = { x: raw.x, y: raw.y };
+    } else {
+        panel.prevSmoothedCOG = {
+            x: COG_EMA_ALPHA * raw.x + (1 - COG_EMA_ALPHA) * panel.prevSmoothedCOG.x,
+            y: COG_EMA_ALPHA * raw.y + (1 - COG_EMA_ALPHA) * panel.prevSmoothedCOG.y,
+        };
+    }
+
+    panel.cogHistory.push({ x: panel.prevSmoothedCOG.x, y: panel.prevSmoothedCOG.y });
+    if (panel.cogHistory.length > COG_HISTORY_LEN) panel.cogHistory.shift();
+
+    return { x: panel.prevSmoothedCOG.x, y: panel.prevSmoothedCOG.y };
 }
 
+// Optimal COG with clamped t + EMA
 function calculateOptimalCOG(landmarks, cog, panel) {
     const la = landmarks[27], ra = landmarks[28];
     const lw = landmarks[15], rw = landmarks[16];
@@ -99,27 +146,104 @@ function calculateOptimalCOG(landmarks, cog, panel) {
 
     const baseX = (la.x + ra.x) / 2, baseY = (la.y + ra.y) / 2;
     const pullX = (lw.x + rw.x) / 2, pullY = (lw.y + rw.y) / 2;
-    let optX = Math.abs(pullY - baseY) < 0.001
-        ? baseX
-        : baseX + ((cog.y - baseY) / (pullY - baseY)) * (pullX - baseX);
+
+    let optX;
+    if (Math.abs(pullY - baseY) < 0.001) {
+        optX = baseX;
+    } else {
+        let t = (cog.y - baseY) / (pullY - baseY);
+        t = Math.max(0, Math.min(1, t));
+        optX = baseX + t * (pullX - baseX);
+    }
 
     const raw = { x: optX, y: cog.y, anchors: { baseX, baseY, pullX, pullY } };
-    const oh = panel.optimalHistory;
-    oh.push(raw);
-    if (oh.length > SMOOTHING_WINDOW) oh.shift();
 
-    return oh.reduce((acc, c) => ({
-        x: acc.x + c.x / oh.length,
-        y: acc.y + c.y / oh.length,
-        anchors: raw.anchors
-    }), { x: 0, y: 0 });
+    if (!panel.prevSmoothedOptimal) {
+        panel.prevSmoothedOptimal = { x: raw.x, y: raw.y };
+    } else {
+        panel.prevSmoothedOptimal = {
+            x: OPTIMAL_EMA_ALPHA * raw.x + (1 - OPTIMAL_EMA_ALPHA) * panel.prevSmoothedOptimal.x,
+            y: OPTIMAL_EMA_ALPHA * raw.y + (1 - OPTIMAL_EMA_ALPHA) * panel.prevSmoothedOptimal.y,
+        };
+    }
+
+    return { x: panel.prevSmoothedOptimal.x, y: panel.prevSmoothedOptimal.y, anchors: raw.anchors };
+}
+
+// ─── PER-PANEL ANALYTICS ──────────────────────────────────────────────────────
+
+// Gaussian stability (matching dataAnalysis.js)
+function calculatePanelMetrics(cog, optimal, a) {
+    if (!cog || !optimal) return { instant: 0, session: 0 };
+    a.totalFrames++;
+    const gap = Math.abs(cog.x - optimal.x);
+    const instantScore = Math.exp(-(gap * gap) / (2 * STABILITY_SIGMA * STABILITY_SIGMA)) * 100;
+
+    if (a.totalFrames === 1) {
+        a.sessionStabilityEMA = instantScore;
+    } else {
+        a.sessionStabilityEMA = STABILITY_EMA_ALPHA * instantScore + (1 - STABILITY_EMA_ALPHA) * a.sessionStabilityEMA;
+    }
+    a.stabilityScoreSum += instantScore;
+
+    return { instant: instantScore.toFixed(1), session: a.sessionStabilityEMA.toFixed(1) };
+}
+
+// Normalized jerk smoothness (matching dataAnalysis.js)
+function analyzePanelSmoothness(cogHistory, a, bodyHeight) {
+    if (cogHistory.length < 2) return;
+    const curr = cogHistory[cogHistory.length - 1];
+    const prev = cogHistory[cogHistory.length - 2];
+    const dx = curr.x - prev.x;
+    const dy = curr.y - prev.y;
+    const rawVel = Math.sqrt(dx * dx + dy * dy);
+    const safeH = Math.max(bodyHeight, 0.05);
+    const normVel = rawVel / safeH;
+    a.currentVelocity = normVel;
+
+    a.velocityHistory.push(normVel);
+    if (a.velocityHistory.length > ANALYTICS_WINDOW) a.velocityHistory.shift();
+
+    if (a.velocityHistory.length >= 2) {
+        const accel = Math.abs(a.velocityHistory[a.velocityHistory.length - 1] - a.velocityHistory[a.velocityHistory.length - 2]);
+        a.accelHistory.push(accel);
+        if (a.accelHistory.length > ANALYTICS_WINDOW) a.accelHistory.shift();
+    }
+
+    if (a.accelHistory.length >= 2) {
+        let jerkSumSq = 0, jerkCount = 0;
+        for (let i = 1; i < a.accelHistory.length; i++) {
+            const jerk = Math.abs(a.accelHistory[i] - a.accelHistory[i - 1]);
+            jerkSumSq += jerk * jerk;
+            jerkCount++;
+        }
+        const rmsJerk = Math.sqrt(jerkSumSq / jerkCount);
+        const rawScore = 100 / (1 + JERK_SIGMOID_K * rmsJerk);
+        a.smoothnessScore = SCORE_EMA_ALPHA * rawScore + (1 - SCORE_EMA_ALPHA) * a.smoothnessScore;
+        a.peakSmoothness = Math.max(a.peakSmoothness, a.smoothnessScore);
+        a.minSmoothness = Math.min(a.minSmoothness, a.smoothnessScore);
+    }
+}
+
+function getPanelSummary(panel) {
+    const a = panel.analytics;
+    return {
+        avgStability: a.totalFrames > 0 ? (a.stabilityScoreSum / a.totalFrames).toFixed(1) : '0.0',
+        smoothnessScore: a.smoothnessScore.toFixed(0),
+        avgVelocity: a.velocityHistory.length > 0
+            ? (a.velocityHistory.reduce((s, v) => s + v, 0) / a.velocityHistory.length).toFixed(3) : '0.000',
+        peakVelocity: a.velocityHistory.length > 0
+            ? Math.max(...a.velocityHistory).toFixed(3) : '0.000',
+        totalFramesAnalyzed: a.totalFrames,
+    };
 }
 
 // ─── DRAWING ──────────────────────────────────────────────────────────────────
 function drawPanel(panel) {
-    const { ctx, canvas, video, drawUtils, cogHistory, cogPath, optimalHistory,
-        stabilityEl, accuracyEl, velocityEl, lastResult } = panel;
-    
+    const { ctx, canvas, video, drawUtils, cogHistory, cogPath,
+        stabilityEl, accuracyEl, velocityEl, lastResult, analytics } = panel;
+    if (!lastResult) return;
+
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -156,7 +280,6 @@ function drawPanel(panel) {
         ctx.lineWidth = 3 * s;
         ctx.stroke();
 
-        // Optimal point
         ctx.beginPath();
         ctx.arc(optimal.x * canvas.width, optimal.y * canvas.height, 6 * s, 0, Math.PI * 2);
         ctx.fillStyle = '#00f2ff';
@@ -183,52 +306,34 @@ function drawPanel(panel) {
         ctx.fillText('Optimal', optimal.x * canvas.width + 14 * s, optimal.y * canvas.height + 14 * s);
     }
 
-    // Smoothness box (reuse same math, draw on panel canvas)
-    if (cogHistory.length > 1) {
-        const prev = cogHistory[cogHistory.length - 2];
-        const curr = cogHistory[cogHistory.length - 1];
-        const vel = Math.sqrt(
-            Math.pow((curr.x - prev.x) * canvas.width, 2) +
-            Math.pow((curr.y - prev.y) * canvas.height, 2)
-        );
+    // Body height for normalization
+    const ankleMid = midpoint(landmarks[27], landmarks[28]);
+    const bodyHeight = Math.sqrt(
+        Math.pow(landmarks[0].x - ankleMid.x, 2) + Math.pow(landmarks[0].y - ankleMid.y, 2)
+    );
 
-        // Update DOM readouts
-        if (frameCount % 2 === 0) {
-            if (velocityEl) velocityEl.textContent = `${vel.toFixed(1)} px/f`;
-        }
-    }
+    // Run per-panel analytics
+    analyzePanelSmoothness(cogHistory, analytics, bodyHeight);
 
-    // Calculate detailed metrics (instant accuracy and session stability)
-    if (optimal && stabilityEl && accuracyEl) {
-        panel.totalFrames++;
-        
-        // Calculate metrics using the same function as single mode
-        const metrics = calculateDetailedMetrics(cog, optimal);
-        
-        // Track aligned frames for this panel
-        const horizontalGap = Math.abs(cog.x - optimal.x);
-        const HORIZONTAL_THRESHOLD = 0.05;
-        if (horizontalGap <= HORIZONTAL_THRESHOLD) {
-            panel.alignedFrames++;
-        }
-        
-        // Update DOM every other frame to reduce overhead
+    if (optimal) {
+        const metrics = calculatePanelMetrics(cog, optimal, analytics);
         if (frameCount % 2 === 0) {
-            // Average Stability (session metric)
             if (stabilityEl) {
-                const sessionStability = ((panel.alignedFrames / panel.totalFrames) * 100).toFixed(1);
-                stabilityEl.textContent = `${sessionStability}%`;
-                stabilityEl.style.color = parseFloat(sessionStability) > 70 ? '#67f2c4' : '#ffd166';
+                stabilityEl.textContent = `${metrics.session}%`;
+                stabilityEl.style.color = parseFloat(metrics.session) > 70 ? '#67f2c4' : '#ffd166';
                 stabilityEl.classList.remove('dim');
             }
-            
-            // Frame Stability (instant metric)
             if (accuracyEl) {
                 accuracyEl.textContent = `${metrics.instant}%`;
                 accuracyEl.style.color = parseFloat(metrics.instant) > 80 ? '#4ade80' : '#facc15';
                 accuracyEl.classList.remove('dim');
             }
         }
+    }
+
+    if (frameCount % 2 === 0 && velocityEl) {
+        velocityEl.textContent = `${(analytics.currentVelocity * 100).toFixed(1)}% bh/f`;
+        velocityEl.classList.remove('dim');
     }
 
     // Smoothness overlay box
@@ -239,9 +344,14 @@ function drawPanel(panel) {
     ctx.strokeStyle = 'rgba(131,160,194,0.3)';
     ctx.lineWidth = s;
     ctx.stroke();
-    ctx.fillStyle = '#67f2c4';
-    ctx.font = `bold ${Math.round(28 * s)}px Inter, sans-serif`;
-    ctx.fillText(panel.id.toUpperCase() === 'A' ? 'Run A' : 'Run B', bx + 14 * s, by + 44 * s);
+
+    ctx.fillStyle = analytics.smoothnessScore > 75 ? '#67f2c4' : '#ffd166';
+    ctx.font = `bold ${Math.round(24 * s)}px Inter, sans-serif`;
+    ctx.fillText(analytics.smoothnessScore.toFixed(0), bx + 14 * s, bx + 30 * s);
+
+    ctx.fillStyle = '#8fa6c2';
+    ctx.font = `${Math.round(11 * s)}px Inter, sans-serif`;
+    ctx.fillText('Smoothness', bx + 14 * s, by + 50 * s);
 
     ctx.restore();
 }
@@ -293,7 +403,6 @@ function trackFrame() {
 
     // Draw both panels every frame (each uses its most recent detection)
     panels.forEach(drawPanel);
-
     animationFrameId = requestAnimationFrame(trackFrame);
 }
 
@@ -302,10 +411,7 @@ async function loadLandmarker() {
     setStatus('Loading MediaPipe model...');
     const vision = await FilesetResolver.forVisionTasks(WASM_URL);
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: {
-            modelAssetPath: MODEL_URL,
-            delegate: 'GPU'
-        },
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
         runningMode: 'VIDEO',
         numPoses: 1,
         minPoseDetectionConfidence: 0.3,  // Lower threshold for better detection
@@ -313,7 +419,6 @@ async function loadLandmarker() {
         minTrackingConfidence: 0.3,       // Lower threshold for better tracking
     });
 
-    // GPU pre-warm
     try {
         const w = document.createElement('canvas');
         w.width = MAX_DETECTION_WIDTH;
@@ -328,6 +433,77 @@ function setStatus(msg) {
     if (statusText) statusText.textContent = msg;
 }
 
+// ─── COMPARISON SUMMARY ───────────────────────────────────────────────────────
+
+function showComparisonSummary() {
+    const section = document.getElementById('compare-summary-section');
+    if (!section) return;
+
+    const summA = getPanelSummary(panels[0]);
+    const summB = getPanelSummary(panels[1]);
+
+    const set = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
+
+    // Populate Run A
+    set('cmp-stability-a', `${summA.avgStability}%`);
+    set('cmp-smoothness-a', summA.smoothnessScore);
+    set('cmp-velocity-a', `${(parseFloat(summA.avgVelocity) * 100).toFixed(1)}%`);
+    set('cmp-frames-a', summA.totalFramesAnalyzed.toLocaleString());
+
+    // Populate Run B
+    set('cmp-stability-b', `${summB.avgStability}%`);
+    set('cmp-smoothness-b', summB.smoothnessScore);
+    set('cmp-velocity-b', `${(parseFloat(summB.avgVelocity) * 100).toFixed(1)}%`);
+    set('cmp-frames-b', summB.totalFramesAnalyzed.toLocaleString());
+
+    // Color-code winners
+    const colorWinner = (idA, idB, valA, valB, higherIsBetter = true) => {
+        const elA = document.getElementById(idA);
+        const elB = document.getElementById(idB);
+        if (!elA || !elB) return;
+        const a = parseFloat(valA), b = parseFloat(valB);
+        const aWins = higherIsBetter ? a >= b : a <= b;
+        elA.style.color = aWins ? '#67f2c4' : '#ffd166';
+        elB.style.color = !aWins ? '#67f2c4' : '#ffd166';
+    };
+
+    colorWinner('cmp-stability-a', 'cmp-stability-b', summA.avgStability, summB.avgStability);
+    colorWinner('cmp-smoothness-a', 'cmp-smoothness-b', summA.smoothnessScore, summB.smoothnessScore);
+    colorWinner('cmp-velocity-a', 'cmp-velocity-b', summA.avgVelocity, summB.avgVelocity, false);
+
+    // Verdict
+    let aScore = 0, bScore = 0;
+    if (parseFloat(summA.avgStability) > parseFloat(summB.avgStability)) aScore++; else bScore++;
+    if (parseFloat(summA.smoothnessScore) > parseFloat(summB.smoothnessScore)) aScore++; else bScore++;
+    if (parseFloat(summA.avgVelocity) < parseFloat(summB.avgVelocity)) aScore++; else bScore++;
+
+    const verdictEl = document.getElementById('cmp-verdict');
+    if (verdictEl) {
+        if (aScore > bScore) {
+            verdictEl.textContent = 'Run A had better overall metrics';
+            verdictEl.style.color = '#67f2c4';
+        } else if (bScore > aScore) {
+            verdictEl.textContent = 'Run B had better overall metrics';
+            verdictEl.style.color = 'var(--accent)';
+        } else {
+            verdictEl.textContent = 'Both runs performed similarly';
+            verdictEl.style.color = 'var(--muted)';
+        }
+    }
+
+    // Show the section and scroll it into view
+    section.classList.add('visible');
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideComparisonSummary() {
+    const section = document.getElementById('compare-summary-section');
+    if (section) section.classList.remove('visible');
+}
+
 // ─── FILE INPUT HANDLERS ─────────────────────────────────────────────────────
 panels.forEach(panel => {
     panel.fileInput.addEventListener('change', () => {
@@ -337,12 +513,17 @@ panels.forEach(panel => {
         panel.objectUrl = URL.createObjectURL(file);
         panel.video.src = panel.objectUrl;
         panel.cogHistory.length = 0;
-        panel.optimalHistory.length = 0;
         panel.cogPath.length = 0;
+        panel.prevSmoothedCOG = null;
+        panel.prevSmoothedOptimal = null;
         panel.lastVideoTime = -1;
         panel.lastResult = null;
-        panel.alignedFrames = 0;
-        panel.totalFrames = 0;
+        panel.ended = false;
+        resetAnalyticsState(panel.analytics);
+
+        // Hide summary when loading new videos
+        hideComparisonSummary();
+
         panel.video.onloadedmetadata = () => {
             resizePanel(panel);
             panel.video.play();
@@ -350,11 +531,21 @@ panels.forEach(panel => {
             setStatus(`${panel.id.toUpperCase()}: ${file.name}`);
         };
 
-        // Start loop if not already running
         if (animationFrameId === null) trackFrame();
+    });
+
+    // Show summary when a video ends
+    panel.video.addEventListener('ended', () => {
+        panel.ended = true;
+        showComparisonSummary();
     });
 });
 
+// Expose both show and hide for the inline script (module might load async)
+window._hideComparisonSummary = hideComparisonSummary;
+window._showComparisonSummary = showComparisonSummary;
+window._comparePanels = panels;
+
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 await loadLandmarker();
-trackFrame(); // start loop immediately so we're ready when files are uploaded
+trackFrame();
