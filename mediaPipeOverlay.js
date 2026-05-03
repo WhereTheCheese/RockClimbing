@@ -4,7 +4,9 @@ import {
     analyzeSmoothness,
     drawVelocityChart,
     getCurrentVelocity,
-    getCurrentSmoothnessScore
+    getCurrentSmoothnessScore,
+    calculateAlignmentPercentage,
+    calculateDetailedMetrics
 } from './dataAnalysis.js';
 
 const video = document.getElementById('video');
@@ -26,7 +28,6 @@ const statusText = document.getElementById('status-text');
 // Velocity graph elements
 const velocityChart = document.getElementById('velocity-chart');
 const velocityCurrent = document.getElementById('data-velocity');
-const smoothnessCurrent = document.getElementById('data-stability');
 const velocityChartCtx = velocityChart ? velocityChart.getContext('2d') : null;
 
 let poseLandmarker;
@@ -221,8 +222,35 @@ function drawResults(result) {
         if (cogPath.length > MAX_PATH_POINTS) cogPath.shift();
         drawCogPath();
 
-        // 3. Draw Optimal Elements
+        // 3. Alignment Integration
         if (optimalData) {
+            // Get both instant accuracy and session stability metrics
+            const metrics = calculateDetailedMetrics(currentCog, optimalData);
+            
+            // Update the 'CoM Stability' card (Session Average)
+            const stabilityCurrent = document.getElementById('data-stability');
+            if (stabilityCurrent) {
+                stabilityCurrent.textContent = `${metrics.session}%`;
+                
+                // Visual feedback: Green for >70% alignment, Orange for less
+                stabilityCurrent.style.color = parseFloat(metrics.session) > 70 ? '#67f2c4' : '#ffd166';
+                
+                // Remove placeholder class when we have real data
+                stabilityCurrent.classList.remove('placeholder');
+            }
+
+            // Update the 'COG Accuracy' card (Real-time Snapshot)
+            const accuracyElement = document.getElementById('data-cog-accuracy');
+            if (accuracyElement) {
+                accuracyElement.textContent = `${metrics.instant}%`;
+                
+                // Color based on instant performance
+                accuracyElement.style.color = parseFloat(metrics.instant) > 80 ? '#4ade80' : '#facc15';
+                
+                // Remove placeholder class when we have real data
+                accuracyElement.classList.remove('placeholder');
+            }
+
             // The Axis of Tension (Line connecting Hands to Feet)
             canvasContext.setLineDash([5, 5]);
             canvasContext.beginPath();
@@ -246,6 +274,9 @@ function drawResults(result) {
             canvasContext.arc(optimalData.x * canvas.width, optimalData.y * canvas.height, 6, 0, Math.PI * 2);
             canvasContext.fillStyle = '#00f2ff';
             canvasContext.fill();
+        } else {
+            // Debug: Log when we can't calculate optimal COG
+            console.log("Stability paused: Missing hands or feet in frame.");
         }
 
         // 4. Draw Current COG
@@ -286,9 +317,6 @@ function drawResults(result) {
         }
         if (velocityCurrent) {
             velocityCurrent.textContent = `${getCurrentVelocity().toFixed(1)} px/frame`;
-        }
-        if (smoothnessCurrent) {
-            smoothnessCurrent.textContent = getCurrentSmoothnessScore().toFixed(0);
         }
     }
 
