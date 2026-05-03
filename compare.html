@@ -195,12 +195,28 @@
         /* ── Individual Video Controls ── */
         .video-controls {
             display: flex;
-            align-items: center;
-            gap: 12px;
+            flex-direction: column;
+            gap: 10px;
             background: var(--bg);
-            padding: 10px 12px;
+            padding: 12px;
             border-radius: 8px;
             border: 1px solid var(--panel-border);
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .control-label {
+            font-size: 0.75rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            width: 70px;
         }
 
         .video-controls input[type="range"] {
@@ -209,8 +225,13 @@
             accent-color: var(--accent);
         }
 
+        .video-controls input[type="range"].start-slider {
+            accent-color: var(--success);
+        }
+
         .video-controls input[type="range"]:disabled {
             cursor: not-allowed;
+            opacity: 0.5;
         }
 
         .time-display {
@@ -261,6 +282,7 @@
             padding: 14px 24px;
             background: var(--panel);
             border-top: 1px solid var(--panel-border);
+            flex-wrap: wrap;
         }
 
         .sync-btn {
@@ -287,6 +309,7 @@
         .sync-label {
             font-size: 0.85rem;
             color: var(--muted);
+            font-weight: 600;
         }
 
         /* ── Responsive ── */
@@ -311,12 +334,12 @@
     </header>
 
     <div class="sync-bar">
-        <span class="sync-label">Playback:</span>
+        <span class="sync-label">Sync Playback:</span>
         <button class="sync-btn secondary" id="prev-frame-btn" title="Previous Frame">◄◄</button>
         <button class="sync-btn" id="play-both-btn">▶ Play Both</button>
         <button class="sync-btn secondary" id="pause-both-btn">⏸ Pause Both</button>
         <button class="sync-btn secondary" id="next-frame-btn" title="Next Frame">►►</button>
-        <button class="sync-btn secondary" id="restart-btn">↺ Restart Both</button>
+        <button class="sync-btn secondary" id="restart-btn" style="border-color: var(--success); color: var(--success);">↺ Restart from Markers</button>
         <select id="speed-control-compare" style="background:var(--panel);border:1px solid var(--panel-border);color:var(--text);border-radius:6px;padding:8px 12px;font-family:'Open Sans',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;">
             <option value="0.25">0.25x</option>
             <option value="0.5">0.5x</option>
@@ -348,20 +371,28 @@
                 </div>
             </div>
             <div class="video-controls">
-                <input type="range" id="seek-bar-a" value="0" min="0" step="0.01" disabled>
-                <span class="time-display" id="time-display-a">0:00 / 0:00</span>
+                <div class="control-row">
+                    <span class="control-label">Current</span>
+                    <input type="range" id="seek-bar-a" value="0" min="0" step="0.01" disabled>
+                    <span class="time-display" id="time-display-a">0:00 / 0:00</span>
+                </div>
+                <div class="control-row">
+                    <span class="control-label" style="color: var(--success);">Start Point</span>
+                    <input type="range" id="start-marker-a" class="start-slider" value="0" min="0" step="0.01" disabled>
+                    <span class="time-display" id="start-display-a">0:00</span>
+                </div>
             </div>
             <div class="stats-row">
                 <div class="stat-card">
-                    <div class="stat-label">CoM Stability</div>
+                    <div class="stat-label">Average Stability</div>
                     <div class="stat-value dim" id="stability-a">--%</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">COG Accuracy</div>
+                    <div class="stat-label">Frame Stability</div>
                     <div class="stat-value dim" id="accuracy-a">--%</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Velocity</div>
+                    <div class="stat-label">Movement Velocity</div>
                     <div class="stat-value dim" id="velocity-a">-- px/f</div>
                 </div>
             </div>
@@ -385,20 +416,28 @@
                 </div>
             </div>
             <div class="video-controls">
-                <input type="range" id="seek-bar-b" value="0" min="0" step="0.01" disabled>
-                <span class="time-display" id="time-display-b">0:00 / 0:00</span>
+                <div class="control-row">
+                    <span class="control-label">Current</span>
+                    <input type="range" id="seek-bar-b" value="0" min="0" step="0.01" disabled>
+                    <span class="time-display" id="time-display-b">0:00 / 0:00</span>
+                </div>
+                <div class="control-row">
+                    <span class="control-label" style="color: var(--success);">Start Point</span>
+                    <input type="range" id="start-marker-b" class="start-slider" value="0" min="0" step="0.01" disabled>
+                    <span class="time-display" id="start-display-b">0:00</span>
+                </div>
             </div>
             <div class="stats-row">
                 <div class="stat-card">
-                    <div class="stat-label">CoM Stability</div>
+                    <div class="stat-label">Average Stability</div>
                     <div class="stat-value dim" id="stability-b">--%</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">COG Accuracy</div>
+                    <div class="stat-label">Frame Stability</div>
                     <div class="stat-value dim" id="accuracy-b">--%</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Velocity</div>
+                    <div class="stat-label">Movement Velocity</div>
                     <div class="stat-value dim" id="velocity-b">-- px/f</div>
                 </div>
             </div>
@@ -409,7 +448,7 @@
     <script type="module" src="./compareOverlay.js"></script>
 
     <script>
-        // Sync controls — plain JS, no module needed
+        // Sync controls
         const videoA = document.getElementById('video-a');
         const videoB = document.getElementById('video-b');
         const hintA  = document.getElementById('hint-a');
@@ -428,9 +467,15 @@
             videoA.pause();
             videoB.pause();
         });
+        
+        // This button now grabs the percentages from the green start markers
         document.getElementById('restart-btn').addEventListener('click', () => {
-            videoA.currentTime = 0;
-            videoB.currentTime = 0;
+            const startPctA = parseFloat(document.getElementById('start-marker-a').value) || 0;
+            const startPctB = parseFloat(document.getElementById('start-marker-b').value) || 0;
+            
+            if (videoA.duration) videoA.currentTime = (startPctA / 100) * videoA.duration;
+            if (videoB.duration) videoB.currentTime = (startPctB / 100) * videoB.duration;
+            
             videoA.play();
             videoB.play();
         });
