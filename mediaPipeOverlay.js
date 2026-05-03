@@ -1,11 +1,5 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
-import {
-    resetAnalytics,
-    analyzeFlowState,
-    drawVelocityChart,
-    getCurrentVelocity,
-    getCurrentSmoothnessScore
-} from './dataAnalysis.js';
+import { resetAnalytics, analyzeFlowState } from './dataAnalysis.js';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
@@ -18,24 +12,20 @@ const drawingUtils = new DrawingUtils(canvasContext);
 const webcamButton = document.getElementById('webcam-button');
 const videoFileInput = document.getElementById('video-file');
 const statusText = document.getElementById('status-text');
-const velocityChart = document.getElementById('velocity-chart');
-const velocityCurrent = document.getElementById('velocity-current');
-const smoothnessCurrent = document.getElementById('smoothness-current');
-const velocityChartCtx = velocityChart.getContext('2d');
 
 let poseLandmarker;
 let animationFrameId = null;
 let lastVideoTime = -1;
 let currentObjectUrl = null;
 
-// --- COG TRACKING CONFIGURATION ---
+// --- CONFIGURATION & TRACKING HISTORY ---
 const cogHistory = [];
-const optimalHistory = []; // Smoother for the optimal point
+const optimalHistory = [];
 const cogPath = [];
 const SMOOTHING_WINDOW = 5;
 const MAX_PATH_POINTS = 300;
 
-function getMidpoint(p1, p2) {  //get the midpoint between two points
+function getMidpoint(p1, p2) {
     return {
         x: (p1.x + p2.x) / 2,
         y: (p1.y + p2.y) / 2,
@@ -47,13 +37,12 @@ function getMidpoint(p1, p2) {  //get the midpoint between two points
  * Calculates the anthropometric COG based on segment weights
  */
 function calculateCOG(landmarks) {
-    // 1. Define Key Segments see: https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker 
-    const head = landmarks[0]; // Nose
+    const head = landmarks[0];
     const shoulderMid = getMidpoint(landmarks[11], landmarks[12]);
     const hipMid = getMidpoint(landmarks[23], landmarks[24]);
     const trunk = getMidpoint(shoulderMid, hipMid);
 
-    const segments = [ //Segment weights on generally the relative weight of each body segment.
+    const segments = [
         { pos: head, weight: 0.08 },
         { pos: trunk, weight: 0.50 },
         { pos: getMidpoint(landmarks[23], landmarks[25]), weight: 0.10 }, // R-Thigh
@@ -67,48 +56,70 @@ function calculateCOG(landmarks) {
     ];
 
     let rawCOG = { x: 0, y: 0 };
-    segments.forEach(s => { // weight * position is the contribution of each segment to the center of mass
+    segments.forEach(s => {
         rawCOG.x += s.pos.x * s.weight;
         rawCOG.y += s.pos.y * s.weight;
     });
 
     cogHistory.push(rawCOG);
-    if (cogHistory.length > SMOOTHING_WINDOW) cogHistory.shift(); // remove the oldest data point if we have too many
+    if (cogHistory.length > SMOOTHING_WINDOW) cogHistory.shift();
 
-    const smoothedCOG = cogHistory.reduce((acc, curr) => ({ //calculate the smoothed center of mass by averaging the last n data points
+    return cogHistory.reduce((acc, curr) => ({
         x: acc.x + curr.x / cogHistory.length,
         y: acc.y + curr.y / cogHistory.length
     }), { x: 0, y: 0 });
 }
 
-function resizeVelocityChart() {
-    const dpr = window.devicePixelRatio ||
-        1; const cssWidth = velocityChart.clientWidth ||
-            320; const cssHeight = velocityChart.clientHeight ||
-                200; velocityChart.width = Math.floor(cssWidth * dpr);
-    velocityChart.height = Math.floor(cssHeight * dpr); velocityChartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-
 /**
- * Calculates the "Optimal X" (midpoint of ankles) projected onto current Y
+ * Calculates the "Achievable Optimal X" by interpolating between the 
+ * base of support (feet) and the upper anchor (hands) at the current COG height.
  */
 function calculateOptimalCOG(landmarks, currentCog) {
     const leftAnkle = landmarks[27];
     const rightAnkle = landmarks[28];
+    const leftWrist = landmarks[15];
+    const rightWrist = landmarks[16];
 
-    // Check visibility/presence of feet
-    if (!leftAnkle || !rightAnkle || leftAnkle.visibility < 0.5 || rightAnkle.visibility < 0.5) return null;
+    if (!leftAnkle || !rightAnkle || !leftWrist || !rightWrist) return null;
 
-    const baseMidpointX = (leftAnkle.x + rightAnkle.x) / 2;
-    const rawOptimal = { x: baseMidpointX, y: currentCog.y };
+    // 1. Define Lower Anchor (Base of Support)
+    const baseX = (leftAnkle.x + rightAnkle.x) / 2;
+    const baseY = (leftAnkle.y + rightAnkle.y) / 2;
+
+    // 2. Define Upper Anchor (Pull Center)
+    const pullX = (leftWrist.x + rightWrist.x) / 2;
+    const pullY = (leftWrist.y + rightWrist.y) / 2;
+
+    let optimalX;
+
+    // 3. Find where the current Y intersects the Tension Line
+    // Prevent divide by zero if hands and feet are exactly horizontal (e.g., severe heel hook)
+    if (Math.abs(pullY - baseY) < 0.001) {
+        optimalX = baseX;
+    } else {
+        // Calculate the percentage of height (t) the COG is at between feet and hands
+        const t = (currentCog.y - baseY) / (pullY - baseY);
+        // Map that percentage to the X axis
+        optimalX = baseX + t * (pullX - baseX);
+    }
+
+    const rawOptimal = {
+        x: optimalX,
+        y: currentCog.y,
+        // We return the anchor points to draw the Tension Line in drawResults
+        anchors: { baseX, baseY, pullX, pullY }
+    };
 
     optimalHistory.push(rawOptimal);
     if (optimalHistory.length > SMOOTHING_WINDOW) optimalHistory.shift();
 
-    return optimalHistory.reduce((acc, curr) => ({
+    const smoothed = optimalHistory.reduce((acc, curr) => ({
         x: acc.x + curr.x / optimalHistory.length,
-        y: acc.y + curr.y / optimalHistory.length
+        y: acc.y + curr.y / optimalHistory.length,
+        anchors: rawOptimal.anchors // Keep current anchors for drawing
     }), { x: 0, y: 0 });
+
+    return smoothed;
 }
 
 // --- UTILITIES ---
@@ -118,11 +129,8 @@ function setStatus(message) {
 }
 
 function resizeCanvas() {
-    // Let the browser report the dimensions without manually swapping them
     const vw = video.videoWidth || 1280;
     const vh = video.videoHeight || 720;
-
-    // Set both canvases to match the video
     inputCanvas.width = vw;
     inputCanvas.height = vh;
     canvas.width = vw;
@@ -150,18 +158,15 @@ function resetLoop() {
 
 // --- DRAWING FUNCTIONS ---
 
-function drawCogPath() { // draws the path of the center of mass movement
-    if (cogPath.length < 2) {
-        return;
-    }
-
+function drawCogPath() {
+    if (cogPath.length < 2) return;
     canvasContext.save();
     canvasContext.beginPath();
     canvasContext.moveTo(cogPath[0].x, cogPath[0].y);
     for (let i = 1; i < cogPath.length; i++) {
         canvasContext.lineTo(cogPath[i].x, cogPath[i].y);
     }
-    canvasContext.strokeStyle = 'rgba(255, 209, 102, 0.4)'; // Faded yellow trail
+    canvasContext.strokeStyle = 'rgba(255, 209, 102, 0.4)';
     canvasContext.lineWidth = 2;
     canvasContext.stroke();
     canvasContext.restore();
@@ -176,14 +181,14 @@ function drawResults(result) {
     if (landmarks?.length) {
         // 1. Draw Skeleton
         drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
-            color: '#67f2c4',
-            lineWidth: 4
+            color: 'rgba(103, 242, 196, 0.6)',
+            lineWidth: 2
         });
         drawingUtils.drawLandmarks(landmarks, { color: '#f7fbff', radius: 1 });
 
         // 2. Calculations
         const currentCog = calculateCOG(landmarks);
-        const optimalCog = calculateOptimalCOG(landmarks, currentCog);
+        const optimalData = calculateOptimalCOG(landmarks, currentCog);
 
         // Update Path
         cogPath.push({ x: currentCog.x * canvas.width, y: currentCog.y * canvas.height });
@@ -191,27 +196,28 @@ function drawResults(result) {
         drawCogPath();
 
         // 3. Draw Optimal Elements
-        if (optimalCog) {
-            // Balance Line (Vertical)
+        if (optimalData) {
+            // The Axis of Tension (Line connecting Hands to Feet)
             canvasContext.setLineDash([5, 5]);
             canvasContext.beginPath();
-            canvasContext.moveTo(optimalCog.x * canvas.width, 0);
-            canvasContext.lineTo(optimalCog.x * canvas.width, canvas.height);
-            canvasContext.strokeStyle = 'rgba(0, 242, 255, 0.3)';
+            canvasContext.moveTo(optimalData.anchors.baseX * canvas.width, optimalData.anchors.baseY * canvas.height);
+            canvasContext.lineTo(optimalData.anchors.pullX * canvas.width, optimalData.anchors.pullY * canvas.height);
+            canvasContext.strokeStyle = 'rgba(0, 242, 255, 0.4)';
+            canvasContext.lineWidth = 2;
             canvasContext.stroke();
             canvasContext.setLineDash([]);
 
-            // Effort Gap (Horizontal line between Current and Optimal)
+            // Effort Gap (Horizontal line between Current COG and the Tension Line)
             canvasContext.beginPath();
             canvasContext.moveTo(currentCog.x * canvas.width, currentCog.y * canvas.height);
-            canvasContext.lineTo(optimalCog.x * canvas.width, optimalCog.y * canvas.height);
+            canvasContext.lineTo(optimalData.x * canvas.width, optimalData.y * canvas.height);
             canvasContext.strokeStyle = '#ff4d4d';
             canvasContext.lineWidth = 3;
             canvasContext.stroke();
 
-            // Optimal Point
+            // Achievable Optimal Point on the Tension Line
             canvasContext.beginPath();
-            canvasContext.arc(optimalCog.x * canvas.width, optimalCog.y * canvas.height, 6, 0, Math.PI * 2);
+            canvasContext.arc(optimalData.x * canvas.width, optimalData.y * canvas.height, 6, 0, Math.PI * 2);
             canvasContext.fillStyle = '#00f2ff';
             canvasContext.fill();
         }
@@ -234,19 +240,15 @@ function drawResults(result) {
         // Labels
         canvasContext.fillStyle = '#ffd166';
         canvasContext.font = 'bold 12px Inter, sans-serif';
-        canvasContext.fillText('COG', (cog.x * canvas.width) + 15, (cog.y * canvas.height) + 5);
+        canvasContext.fillText('CURRENT', cx + 15, cy - 5);
 
-        // --- Calculate smoothness
-        analyzeSmoothness(cogHistory, canvasContext, canvas.width, canvas.height);
+        if (optimalData) {
+            canvasContext.fillStyle = '#00f2ff';
+            canvasContext.fillText('Optimal COM', (optimalData.x * canvas.width) + 15, (optimalData.y * canvas.height) + 15);
+        }
 
-        //Velocity graph of center of mass movement
-        drawVelocityChart(
-            velocityChartCtx,
-            velocityChart.width / (window.devicePixelRatio || 1),
-            velocityChart.height / (window.devicePixelRatio || 1)
-        );
-        velocityCurrent.textContent = `${getCurrentVelocity().toFixed(1)} px/frame`;
-        smoothnessCurrent.textContent = getCurrentSmoothnessScore().toFixed(0);
+        // --- CALCULATE DATA ANALYTICS ---
+        analyzeFlowState(cogHistory, canvasContext, canvas.width, canvas.height);
     }
 
     canvasContext.restore();
@@ -254,7 +256,6 @@ function drawResults(result) {
 
 // --- CORE ENGINE ---
 
-// Loads the MediaPipe PoseLandmarker model
 async function loadLandmarker() {
     if (poseLandmarker) return poseLandmarker;
     setStatus('Loading MediaPipe model...');
@@ -281,8 +282,6 @@ function trackFrame() {
         lastVideoTime = video.currentTime;
         inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
         inputCtx.drawImage(video, 0, 0, inputCanvas.width, inputCanvas.height);
-
-        // 2. Run detection on the upright input canvas
         const result = poseLandmarker.detectForVideo(inputCanvas, performance.now());
         drawResults(result);
     }
@@ -324,5 +323,3 @@ const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmark
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm';
 await loadLandmarker();
 video.addEventListener('loadedmetadata', resizeCanvas);
-window.addEventListener('resize', resizeVelocityChart);
-resizeVelocityChart();
