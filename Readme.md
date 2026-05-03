@@ -1,3 +1,5 @@
+https://drive.google.com/drive/folders/1cU3PPqO5yyzSqmKspAggIqzKcUFcy37z?usp=sharing
+
 Extract the Skeleton: MediaPipe gives you 33 joint coordinates (X, Y) per video frame.
 Calculate Center of Mass (COM): You don't need perfect biomechanics. You can approximate the climber's COM by taking the average position of the two hip nodes (MediaPipe landmarks 23 and 24) and the two shoulder nodes (landmarks 11 and 12).
 Track the Path: Store the COM coordinate for every frame. Draw a line connecting them on an HTML5 Canvas layered over the video.
