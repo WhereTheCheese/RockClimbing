@@ -1,4 +1,5 @@
 import { DrawingUtils, FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs';
+import { resetAnalytics, analyzeFlowState } from './dataAnalysis.js';
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
@@ -105,6 +106,7 @@ function resetLoop() {
     lastVideoTime = -1;
     cogHistory.length = 0; // Clear history on new video/webcam
     cogPath.length = 0;
+    resetAnalytics();
     if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
@@ -178,6 +180,9 @@ function drawResults(result) {
         canvasContext.fillStyle = '#ffd166';
         canvasContext.font = 'bold 12px Inter, sans-serif';
         canvasContext.fillText('COG', (cog.x * canvas.width) + 15, (cog.y * canvas.height) + 5);
+
+        // --- CALCULATE DATA ANALYTICS (FLOW STATE SCORE) ---
+        analyzeFlowState(cogHistory, canvasContext, canvas.width, canvas.height);
     }
 
     canvasContext.restore();
