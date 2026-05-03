@@ -18,6 +18,8 @@ let animationFrameId = null;
 let lastVideoTime = -1;
 let currentObjectUrl = null;
 
+//Wow 
+
 // --- COG TRACKING CONFIGURATION ---
 const cogHistory = [];
 const cogPath = [];
